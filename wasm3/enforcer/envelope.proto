@@ -1,0 +1,71 @@
+//  Copyright 2022 Google LLC.
+//
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+//      https://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
+
+syntax = "proto3";
+
+package sealed.wasm;
+
+// Describes how to interpret `Envelope::payload`.
+enum PayloadType {
+  PAYLOAD_TYPE_UNKNOWN = 0;
+
+  // Payload is a blob of bytes intended for the higher level application.
+  PAYLOAD_TYPE_RPC_MESSAGE = 1;
+
+  // Payload contains the first handshake frame in the handshake protocol,
+  // which establishes a secure session.
+  PAYLOAD_TYPE_HANDSHAKE_REQUEST = 2;
+}
+
+// Messages exchanged over sockets are encapsulated in the following struct.
+// This struct and contained types are part of the implementation detail of the
+// `Socket` and `ListeningSocket` API.
+message Envelope {
+  // Address of the destination endpoint. For the MVP, this is the
+  // destination's public key.
+  string dst = 1;
+
+  // Address of the source endpoint. For the MVP, this is the
+  // source's public key.
+  string src = 2;
+
+  // Globally unique identifier for the socket over which this `Envelope` is
+  // exchanged.
+  string socket_id = 3;
+
+  // Describes how to interpret `payload`.
+  PayloadType payload_type = 4;
+
+  // Contains the serialized sealed RPC request/response.
+  string payload = 5;
+
+  // When used in a secure channel, this contains the encrypted serialization of
+  // the RPC request/response fields annotated as secret.
+  // Whem used in insecure channels this field is empty.
+  string encrypted_payload = 6;
+
+  // When used in secure channel, this must match the session envelope number
+  // (i.e. counts the number of envelopes exchanged over the session) contained
+  // in the associated `SecureSession` state.
+  uint64 session_envelope_num = 7;
+
+  // When used in a secure channel, this is a mac over all the above fields:
+  // specifically, over a serialized Envelope containing all the above fields.
+  // When used in insecure channels this field is empty.
+  string mac = 8;
+}
+
+// TODO(sidtelang): add a message for EndpointId. Known types of EndpointId:
+// public keys for remote tasks, "localhost" for the hosting sealet, empty
+// string for when we don't care (routing is evident from context).

@@ -1,0 +1,57 @@
+//  Copyright 2022 Google LLC.
+//
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+//      https://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
+
+// This file defines datatypes used in the sealed RPC mechanism.
+syntax = "proto3";
+
+package sealed.wasm;
+
+// Determines which fields of the RpcMessage object are set and what they mean.
+enum RpcType {
+  RPC_TYPE_UNKNOWN = 0;
+  // Used when RpcMessage encapsulates a RPC request.
+  RPC_TYPE_REQUEST = 1;
+  // Used when RpcMessage encapsulates a RPC response.
+  RPC_TYPE_RESPONSE = 2;
+  // Used when RpcMessage encapsulates a request from the policy enforcer
+  // to the hosting sealet to log a message. There are no responses associated
+  // with such requests.
+  RPC_TYPE_LOG = 3;
+  // Used when RpcMessage encapsulates an RPC request from the policy enforcer
+  // to the hosting sealet.
+  // TODO(sidtelang): replace this with an EndpointId message value that
+  // designates the hosting sealet as an Envelope destination.
+  RPC_TYPE_SEALET_REQUEST = 4;
+}
+
+// Encapsulates RPC requests, responses and other messages used by the sealed
+// RPC mechanism.
+message RpcMessage {
+  // See RpcType above.
+  RpcType type = 1;
+  // When `type` is `RPC_TYPE_REQUEST`, contains the service name the RPC
+  // request is for.
+  string service_name = 2;
+  // When `type` is `RPC_TYPE_REQUEST`, contains the method name the RPC request
+  // is for.
+  string method_name = 3;
+  // When `type` is `RPC_TYPE_REQUEST`, contains the request message.
+  // When `type` is `RPC_TYPE_RESPONSE`, contains the response message.
+  // When `type` is `RPC_TYPE_LOG`, contains the string to be logged.
+  // When `type` is `RPC_TYPE_SEALET_REQUEST`, contains the request message.
+  string payload = 4;
+  // When `type` is `RPC_TYPE_RESPONSE`, contains an encoded
+  // `sealed::wasm::Status` object.
+  string encoded_status = 5;
+}

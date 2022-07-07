@@ -1,0 +1,168 @@
+//  Copyright 2022 Google LLC.
+//
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+//      https://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
+
+syntax = "proto3";
+
+package sealed.wasm;
+
+import "third_party/sealedcomputing/protoc_plugin/annotations.proto";
+
+// Provides methods for provisioning and starting sealed tasks and groups
+// (a.k.a. jobs).
+service LocalProvisioningService {
+  // Provisions secrets for the given sealed task.
+  // Called exactly once in the lifetime of a sealed task.
+  // Results in the creation of sealed task secrets.
+  rpc ProvisionTask(SealedTaskConfig) returns (ProvisionTaskResponse) {}
+
+  // Starts a sealed task that has been previously provisioned.
+  // Called when a sealed task starts up, before it can serve requests.
+  // Results in the loading of sealed task secrets.
+  rpc StartTask(StartTaskRequest) returns (StartTaskResponse) {}
+
+  // Provisions secrets for a sealed group (a.k.a. sealed job).
+  // Called exactly once in the lifetime of a sealed group, on the "genesis
+  // node" of the sealed group.
+  // Results in the creation of sealed group secrets.
+  rpc ProvisionGroupGenesis(ProvisionGroupGenesisRequest)
+      returns (ProvisionGroupResponse) {}
+
+  // Provisions secrets for a sealed group on a non-genesis member of the group.
+  // Called by the genesis node on the non-genesis member and results in the
+  // former disclosing the group secrets to latter over an encrypted mutually
+  // authenticated and integrity protected channel.
+  rpc ProvisionGroupMember(ProvisionGroupMemberRequest)
+      returns (ProvisionGroupResponse) {}
+
+  // Calls ProvisionGroupMember on a specified group member sealed task.
+  // Called on the genesis node and results in it disclosing the group secrets
+  // to a group member by calling ProvisionGroupMember.
+  rpc CallProvisionGroupMember(CallProvisionGroupMemberRequest)
+      returns (CallProvisionGroupMemberResponse) {}
+
+  // Starts the sealed group on any member of the group.
+  // Called when a sealed task starts up, before it can serve requests for the
+  // group.
+  // Results in the loading of sealed group secrets.
+  rpc StartGroup(StartGroupRequest) returns (StartGroupResponse) {}
+}
+
+// Identifies a type of Sealer used to wrap and unwrap task and group secrets.
+enum SealerType {
+  SEALER_TYPE_UNKNOWN = 0;
+
+  // A Sealer with a hardcoded test key. Should only be used for testing.
+  SEALER_TYPE_TEST = 1;
+
+  // A Sealer that uses a key imported from outside the TCB (e.g. Keystore).
+  // Suitable for customer applications that want to run a Sealed Computing
+  // application without full hardware support.
+  SEALER_TYPE_EXTERNAL = 2;
+}
+
+message OutboundRpcConfig {
+  // Sealed RPC method name.
+  string method_name = 1;
+  // Identifies the endpoint providing the service.
+  string pubkey = 2;
+  // Determines whether to send outgoing requests to `method_name` only over a
+  // secure channel.
+  bool require_secure = 3;
+}
+
+message InboundRpcConfig {
+  // Sealed RPC method name.
+  string method_name = 1;
+  // Determines whether to accept incoming requests only over a secure channel.
+  bool require_secure = 2;
+}
+
+// Contains everything the policy enforcer needs to start a sealed task.
+message SealedTaskConfig {
+  // RPC configs for outbound calls.
+  repeated OutboundRpcConfig outbound_rpc_configs = 1;
+  // RPC configs for inbound calls.
+  repeated InboundRpcConfig inbound_rpc_configs = 2;
+  // The type of Sealer to use for wrapping/unwrapping task secrets.
+  SealerType sealer_type = 3;
+}
+
+message ProvisionTaskResponse {
+  // The task public key: used to verify signatures made by the task.
+  string task_pubkey = 1;
+  // An encrypted copy of the provisioned state of the task. This blob
+  // is subsequently needed to load the task secrets a.k.a. start the task.
+  string wrapped_blob = 2;
+}
+
+message StartTaskRequest {
+  SealedTaskConfig task_config = 1;
+  string wrapped_blob = 2;
+}
+
+message StartTaskResponse {
+  // The sealed protoc_plugin does not support empty messages.
+  // TODO(b/223244303): remove this.
+  string unused = 1;
+}
+
+// Identifies a sealed group: a collection of task replicas provisioned with
+// shared group secrets.
+message SealedGroupConfig {
+  // Sequence of task public keys constituting the group.
+  // The first task in this sequence identifies the "genesis node" for the
+  // group.
+  repeated string task_pubkeys = 1;
+}
+
+message ProvisionGroupGenesisRequest {
+  SealedGroupConfig group_config = 1;
+}
+
+message ProvisionGroupMemberRequest {
+  SealedGroupConfig group_config = 1;
+  // A master secret used to deterministically derive all group secrets.
+  string group_pre_secret = 2 [(sealed.proto.secret) = true];
+}
+
+message ProvisionGroupResponse {
+  // The group public key, used to encrypt secrets to the group.
+  // Every group member is provisioned with the corresponding decryption key.
+  string group_pubkey = 1;
+  // An encrypted copy of the provisioned state of the group.
+  // This blob is subsequently required to load the group secrets on the callee.
+  string wrapped_blob = 2;
+}
+
+message CallProvisionGroupMemberRequest {
+  // Identifies a group member to call ProvisionGroupMember on.
+  string task_pubkey = 1;
+}
+
+message CallProvisionGroupMemberResponse {
+  // ProvisionGroupResponse.wrapped_blob from the ProvisionGroupMember call
+  // made to the given group member.
+  string wrapped_blob = 1;
+}
+
+message StartGroupRequest {
+  SealedGroupConfig group_config = 1;
+  string wrapped_blob = 2;
+}
+
+message StartGroupResponse {
+  // The sealed protoc_plugin does not support empty messages.
+  // TODO(b/223244303): remove this.
+  string unused = 1;
+}

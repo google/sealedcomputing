@@ -1,0 +1,6 @@
+message ServeQuoteResponse {
+  report: string
+  signature: string
+}
+
+rpc ServeQuote(challenge: string) -> ServeQuoteResponse

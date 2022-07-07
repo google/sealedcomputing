@@ -1,0 +1,40 @@
+//  Copyright 2022 Google LLC.
+//
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+//      https://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
+
+syntax = "proto3";
+
+package sealed.protoc_plugin.tests;
+
+enum SomeEnum {
+  SOME_ENUM_DEFAULT = 0;
+  SOME_ENUM_NONDEFAULT = 1;
+}
+
+message SomeMessage {
+  int32 int32_field = 1;
+  int64 int64_field = 2;
+  uint32 uint32_field = 3;
+  uint64 uint64_field = 4;
+  float float_field = 5;
+  double double_field = 6;
+  bool bool_field = 7;
+  string string_field = 8;
+  SomeEnum enum_field = 9;
+  repeated string repeated_string_field = 10;
+}
+
+message SomeOuterMessage {
+  SomeMessage inner_message = 1;
+  repeated SomeMessage repeated_inner_message = 2;
+}
