@@ -78,6 +78,7 @@ void LinkBuiltinFunctions(IM3Module module) {
   LinkBuiltin(module, biHmacSha256init, "I(*i)");
   LinkBuiltin(module, biHmacSha256update, "v(I*i)");
   LinkBuiltin(module, biHmacSha256final, "v(I*)");
+  LinkBuiltin(module, biHkdf, "v(i*i*i*i*)");
   LinkBuiltin(module, biGetRequest, "v(*i)");
   LinkBuiltin(module, biGetRequestSecret, "v(*i)");
   LinkBuiltin(module, biGetRequestSecretLength, "i()");
@@ -105,6 +106,18 @@ void LinkBuiltinFunctions(IM3Module module) {
   LinkBuiltin(module, biP256PublicKeyFromBin, "I(*)");
   LinkBuiltin(module, biEcdsaSigFromBin, "I(*)");
   LinkBuiltin(module, biP256EcdsaVerify, "i(I*iI)");
+  LinkBuiltin(module, biGenEciesX25519PrivateKey, "I()");
+  LinkBuiltin(module, biEciesX25519PublicKeyFromPrivateKey, "I(I)");
+  LinkBuiltin(module, biEciesX25519PublicKeyFromBin, "I(*)");
+  LinkBuiltin(module, biDestroyEciesX25519PrivateKey, "v(I)");
+  LinkBuiltin(module, biDestroyEciesX25519PublicKey, "v(I)");
+  LinkBuiltin(module, biEciesX25519AesGcmHkdfEncrypt, "v(I*i*i*)");
+  LinkBuiltin(module, biEciesX25519AesGcmHkdfDecrypt, "i(I*i*i*)");
+  LinkBuiltin(module, biGroupEciesP256PublicKeyToBin, "v(*)");
+  LinkBuiltin(module, biEciesP256PublicKeyFromBin, "I(*)");
+  LinkBuiltin(module, biDestroyEciesP256PublicKey, "v(I)");
+  LinkBuiltin(module, biEciesP256AesGcmHkdfEncrypt, "v(I*i*i*)");
+  LinkBuiltin(module, biGroupEciesP256AesGcmHkdfDecrypt, "i(*i*i*)");
 }
 
 }  // namespace
@@ -121,7 +134,7 @@ void PrintWasm3Error(const std::string& message) {
 // Run the wasm3 interpreter.  Return an error message on failure, otherwise
 // return the M3Result message of calling main in the bytecode.  This is nullptr
 // on success.
-Status InitWasm(const std::string& in_bytes) {
+Status InitWasm(const char* data, size_t size) {
   IM3Environment env = m3_NewEnvironment();
   if (env == nullptr) {
     std::string message = "Unable to create wasm3 environment";
@@ -136,8 +149,7 @@ Status InitWasm(const std::string& in_bytes) {
   }
   IM3Module module = nullptr;
   M3Result result = m3_ParseModule(
-      env, &module, reinterpret_cast<const uint8_t*>(in_bytes.data()),
-      in_bytes.size());
+      env, &module, reinterpret_cast<const uint8_t*>(data), size);
   if (result != nullptr) {
     std::string message = "Unable to parse module: ";
     message += result;
@@ -162,7 +174,7 @@ Status RunWasmMain() {
                   "called RunWasmMain before calling InitWasm");
   }
   IM3Function main_func;
-  M3Result result = m3_FindFunction(&main_func, global_runtime, "main");
+  M3Result result = m3_FindFunction(&main_func, global_runtime, "start");
   if (result != nullptr) {
     std::string message = "Unable to find function main: ";
     message += result;

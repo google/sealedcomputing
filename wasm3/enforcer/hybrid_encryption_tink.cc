@@ -17,8 +17,8 @@
 #include "net/proto2/util/public/message_differencer.h"
 #include "third_party/absl/status/status.h"
 #include "third_party/absl/strings/str_cat.h"
+#include "third_party/sealedcomputing/wasm3/enforcer/hybrid_encryption.h"
 #include "third_party/tink/cc/aead_key_templates.h"
-#include "third_party/tink/cc/binary_keyset_writer.h"
 #include "third_party/tink/cc/cleartext_keyset_handle.h"
 #include "third_party/tink/cc/hybrid_config.h"
 #include "third_party/tink/cc/hybrid_key_templates.h"
@@ -47,7 +47,8 @@ void uint32_as_big_endian(uint32_t value, char* buf) {
 
 }  // namespace
 
-absl::StatusOr<std::string> GetTinkPublicKeyset(const std::string& pubkey) {
+absl::StatusOr<std::string> GetTinkPublicKeysetFromEciesX25519PublicKey(
+    const std::string& pubkey) {
   EciesAeadHkdfPublicKey he_pubkey;
   he_pubkey.set_version(0);
   he_pubkey.set_x(pubkey);
@@ -66,6 +67,50 @@ absl::StatusOr<std::string> GetTinkPublicKeyset(const std::string& pubkey) {
       auto keyset_handle,
       KeysetHandle::GenerateNew(crypto::tink::HybridKeyTemplates::
                                     EciesX25519HkdfHmacSha256Aes256Gcm()));
+  // Get public keyset handle.
+  ASSIGN_OR_RETURN(auto public_keyset_handle,
+                   keyset_handle->GetPublicKeysetHandle());
+  // Access the cleartext keyset in public_keyset_handle.
+  Keyset keyset =
+      crypto::tink::CleartextKeysetHandle::GetKeyset(*public_keyset_handle);
+
+  // Mutate keyset, adding the serialized EciesAeadHkdfPublicKey.
+  for (auto& key : *keyset.mutable_key()) {
+    if (key.key_id() == keyset.primary_key_id()) {
+      key.mutable_key_data()->set_value(he_pubkey.SerializeAsString());
+    }
+  }
+  return keyset.SerializeAsString();
+}
+
+absl::StatusOr<std::string> GetTinkPublicKeysetFromEciesP256PublicKey(
+    const std::string& pubkey) {
+  // take pubkey
+  StatusOr<std::unique_ptr<EciesP256PublicKey>> ecies_pubkey =
+      EciesP256PublicKey::Create(pubkey);
+  if (!ecies_pubkey.ok()) {
+    return absl::InvalidArgumentError(ecies_pubkey.message());
+  }
+
+  EciesAeadHkdfPublicKey he_pubkey;
+  he_pubkey.set_version(0);
+  he_pubkey.set_x((*ecies_pubkey)->GetX());
+  he_pubkey.set_y((*ecies_pubkey)->GetY());
+  auto params = he_pubkey.mutable_params();
+  params->set_ec_point_format(google::crypto::tink::EcPointFormat::COMPRESSED);
+  params->mutable_kem_params()->set_curve_type(
+      google::crypto::tink::EllipticCurveType::NIST_P256);
+  params->mutable_kem_params()->set_hkdf_hash_type(
+      google::crypto::tink::HashType::SHA256);
+  *(params->mutable_dem_params()->mutable_aead_dem()) =
+      crypto::tink::AeadKeyTemplates::Aes128Gcm();
+
+  // Create a keyset handle from the appropriate hybrid key template.
+  RETURN_IF_ERROR(crypto::tink::HybridConfig::Register());
+  ASSIGN_OR_RETURN(auto keyset_handle,
+                   KeysetHandle::GenerateNew(
+                       crypto::tink::HybridKeyTemplates::
+                           EciesP256CompressedHkdfHmacSha256Aes128Gcm()));
   // Get public keyset handle.
   ASSIGN_OR_RETURN(auto public_keyset_handle,
                    keyset_handle->GetPublicKeysetHandle());

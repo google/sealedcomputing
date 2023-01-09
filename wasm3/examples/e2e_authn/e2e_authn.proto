@@ -12,6 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+// LIVE_SNIPPET_BLOCK_1_START
 syntax = "proto3";
 
 package sealed.e2e_authn;
@@ -19,11 +20,6 @@ package sealed.e2e_authn;
 import "third_party/sealedcomputing/protoc_plugin/annotations.proto";
 
 service E2eAuthnService {
-  // Echoes back a given string request as response.
-  // This is intended to smoke-test an end-to-end connection to the sealed
-  // application and/or policy.
-  rpc Echo(EchoRequest) returns (EchoResponse) {}
-
   // Enrolls a recovery key together with a knowledge factor required to
   // subsequently retrieve the recovery key.
   rpc Enroll(EnrollRequest) returns (EnrollResponse) {}
@@ -31,21 +27,6 @@ service E2eAuthnService {
   // Attempts to retrieve the recovery key by supplying a knowledge factor
   // claim.
   rpc Open(OpenRequest) returns (OpenResponse) {}
-
-  // Decrypts a ciphertext encrypted to the sealed job public key and returns
-  // the plaintext.
-  // Note: this is intended to only smoke-test encrypting to the sealed job.
-  // Real applications should not use this as the response contains the
-  // plaintext in the clear.
-  rpc DecryptAndEcho(DecryptAndEchoRequest) returns (DecryptAndEchoResponse) {}
-}
-
-message EchoRequest {
-  string request = 1;
-}
-
-message EchoResponse {
-  string response = 1;
 }
 
 message EnrollRequest {
@@ -83,16 +64,4 @@ message OpenResponse {
   // attempts to retrieve it are denied.
   uint32 bad_guesses_left = 3;
 }
-
-message DecryptAndEchoRequest {
-  // A ciphertext encrypted to the sealed job public key.
-  string ciphertext = 1;
-}
-
-message DecryptAndEchoResponse {
-  // Plaintext value associated with ciphertext in the request.
-  // Note: this is intended to only smoke-test encrypting to the sealed job.
-  // Real applications should not use reveal secret plaintext values in the
-  // clear.
-  string plaintext = 1;
-}
+// LIVE_SNIPPET_BLOCK_1_END

@@ -33,13 +33,13 @@ namespace wasm {
 // Logger, e.g. SC_LOG(INFO) << "foo".
 #define SC_LOG(level) sealed::wasm::Logger(level, __FILE__, __LINE__)
 
-// Panic, with streaming message, e.g. PANIC() << "Help!".
-#define SC_PANIC() sealed::wasm::Logger(FATAL, __FILE__, __LINE__)
+// Panic, with streaming message, e.g. SC_PANIC() << "Help!".
+#define SC_PANIC() ::sealed::wasm::Logger(FATAL, __FILE__, __LINE__)
 
 // Note: both CHECK and Check are already in the global namespace tests.  So,
 // use SC_CHECK for "Sealed Computing Check".
 #define SC_CHECK(assertion) \
-  sealed::wasm::Checker((assertion), __FILE__, __LINE__, #assertion " ")
+  ::sealed::wasm::Checker((assertion), __FILE__, __LINE__, #assertion " ")
 
 // This sends a logging RPC when destroyed, which happens on the same line when
 // the constructor is called, but not assigned to a variable.

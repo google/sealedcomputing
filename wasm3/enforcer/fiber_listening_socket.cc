@@ -81,7 +81,7 @@ void FiberListeningSocket::FiberSocket::Send(
 Status FiberListeningSocket::FiberSocket::Recv(
     ByteString* payload, SecretByteString* payload_secret) {
   Envelope envelope;
-  RecvEnvelope(&envelope);
+  SC_RETURN_IF_ERROR(RecvEnvelope(&envelope));
   *payload = envelope.payload;
   payload_secret->clear();
   return Status();

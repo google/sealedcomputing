@@ -33,13 +33,13 @@ constexpr size_t kAesBlockSize = 16;
 // Return a ByteString consisting of ciphertext + tag, which is bytes of
 // ciphertext equal in length to plaintext + 16 bytes for the tag.  If any input
 // parameter has an invalid size, return a kIllegalArgument error.
-StatusOr<ByteString> AesGcmEncrypt(const ByteString& key,
+StatusOr<ByteString> AesGcmEncrypt(const SecretByteString& key,
                                    const ByteString& nonce,
                                    const SecretByteString& plaintext,
                                    const ByteString& associated_data);
 
 // Recover the plaintext of a message encrypted with AesGcmEncrypt above.
-StatusOr<SecretByteString> AesGcmDecrypt(const ByteString& key,
+StatusOr<SecretByteString> AesGcmDecrypt(const SecretByteString& key,
                                          const ByteString& nonce,
                                          const ByteString& ciphertext,
                                          const ByteString& associated_data);
@@ -48,11 +48,11 @@ StatusOr<SecretByteString> AesGcmDecrypt(const ByteString& key,
 // has few use cases, other than as a primitive for buiding other AES-based
 // cipher modes, such as AES-CTR, or perhaps wrapping secrets that are already
 // indistinguishable from random.
-void AesEncryptBlock(const ByteString& key, const ByteString& in,
+void AesEncryptBlock(const SecretByteString& key, const SecretByteString& in,
                      ByteString* out);
 
 // Decrypt a raw 16-byte block with the AES block decryption algorithm.
-void AesDecryptBlock(const ByteString& key, const ByteString& in,
+void AesDecryptBlock(const SecretByteString& key, const ByteString& in,
                      SecretByteString* out);
 
 }  // namespace uefi_crypto

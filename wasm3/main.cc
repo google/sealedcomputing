@@ -13,5 +13,11 @@
 // limitations under the License.
 
 #include "third_party/sealedcomputing/wasm3/base.h"
+#include "third_party/sealedcomputing/wasm3/efi_utils.h"
 
-extern "C" int WASM_EXPORT main(int argc, char **argv) { return start(); }
+extern "C" int WASM_EXPORT main(int argc, char **argv) {
+  disable_watchdog_timer();
+  (void) argc;
+  (void) argv;
+  return start();
+}

@@ -37,7 +37,8 @@ int main() {
             status.message().c_str());
     return 1;
   }
-  status = sealed::wasm::InitWasm(envelope.payload);
+  status =
+      sealed::wasm::InitWasm(envelope.payload.data(), envelope.payload.size());
   if (!status) {
     fprintf(stderr, "Unable start bytecode interpreter: %s\n",
             status.message().c_str());

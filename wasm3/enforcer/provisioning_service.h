@@ -25,14 +25,35 @@ namespace server {
 // This must match the implicit service name used in generated client code
 // which is the Rune filename defining the service interface.
 // TODO(sidtelang): have the generated header file export this name.
-constexpr char kServiceName[] = "LocalProvisioningService";
+extern const char kServiceName[];
 
 // Method name for retrieving an external key for use in a Sealer.
-constexpr char kGetExternalSealerKeyMethodName[] = "GetExternalSealerKey";
+extern const char kGetExternalSealerKeyMethodName[];
 
 // Context info used by the hybrid encryption scheme for delivering an external
 // Sealer key.
-constexpr char kSealerKeyContextInfo[] = "External Sealing Key";
+extern const char kSealerKeyContextInfo[];
+
+// Method name for getting provisioning challenges from an Eidetic quorum.
+// This RPC method is called by the policy enforcer on the hosting Sealet.
+extern const char kGetEideticProvisioningChallengesMethodName[];
+
+// Method name for provisioning an Eidetic quorum.
+// This RPC method is called by the policy enforcer on the hosting Sealet.
+extern const char kProvisionEideticQuorumMethodName[];
+
+// Method name for reading from an Eidetic quorum.
+// This RPC method is called by the policy enforcer on the hosting Sealet.
+extern const char kReadEideticQuorumMethodName[];
+
+// Method name for writing to an Eidetic quorum.
+// This RPC method is called by the policy enforcer on the hosting Sealet.
+extern const char kWriteEideticQuorumMethodName[];
+
+// Method name for reading the newest, possibly non-consensus from an Eidetic
+// quorum.
+// This RPC method is called by the policy enforcer on the hosting Sealet.
+extern const char kReadNewestEideticQuorumMethodName[];
 
 using RpcHandler = int (*)(int32_t, int32_t);
 

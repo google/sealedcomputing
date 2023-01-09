@@ -19,8 +19,12 @@ package sealed.wasm.tests;
 service ServeDecryptService {
   // Decrypts a ciphertext encrypted to job key.
   rpc Decrypt(DecryptRequest) returns (DecryptResponse) {}
-  // Encrypt a plaintext to job key.
+  // Decrypts a ciphertext encrypted to the P256 job key.
+  rpc DecryptP256(DecryptRequest) returns (DecryptResponse) {}
+  // Encrypts a plaintext to job key.
   rpc Encrypt(EncryptRequest) returns (EncryptResponse) {}
+  // Encrypts a plaintext to the P256 job key.
+  rpc EncryptP256(EncryptRequest) returns (EncryptResponse) {}
   // Call SC_PANIC with given message.
   rpc Panic(PanicRequest) returns (PanicResponse) {}
 }

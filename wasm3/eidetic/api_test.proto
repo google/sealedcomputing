@@ -1,0 +1,50 @@
+syntax = "proto3";
+
+package sealed.eidetic;
+
+service EideticApiTestService {
+  // Reads state.
+  rpc TestRead(TestReadRequest) returns (TestReadResponse);
+
+  // Writes state.
+  rpc TestWrite(TestWriteRequest) returns (TestWriteResponse);
+
+  // Returns the MAC key used to authorize Eidetic writes.
+  // Used in tests to simulate errors in writing to Eidetic.
+  rpc GetMacKey(GetMacKeyRequest) returns (GetMacKeyResponse);
+
+  // Calls HealConsensus.
+  rpc TestHeal(TestHealRequest) returns (TestHealResponse);
+}
+
+message TestReadRequest {
+  string unused = 1;
+}
+
+message TestReadResponse {
+  bytes state = 1;
+}
+
+message TestWriteRequest {
+  bytes state = 1;
+}
+
+message TestWriteResponse {
+  string unused = 1;
+}
+
+message GetMacKeyRequest {
+  string unused = 1;
+}
+
+message GetMacKeyResponse {
+  string mac_key = 1;
+}
+
+message TestHealRequest {
+  string unused = 1;
+}
+
+message TestHealResponse {
+  string state = 1;
+}

@@ -15,15 +15,15 @@
 #include <algorithm>
 #include <cctype>
 #include <cstdint>
+#include <memory>
 #include <string>
 
 #include "net/proto2/compiler/cpp/public/generator.h"
 #include "net/proto2/compiler/public/plugin.h"
-#include "net/proto2/io/public/printer.h"
-#include "net/proto2/io/public/zero_copy_stream.h"
 #include "net/proto2/proto/descriptor.proto.h"
 #include "net/proto2/public/descriptor.h"
 #include "third_party/absl/strings/str_cat.h"
+#include "third_party/protobuf/io/printer.h"
 #include "third_party/sealedcomputing/protoc_plugin/annotations.proto.h"
 
 namespace sealed::proto {
@@ -66,17 +66,19 @@ std::string HeaderGuard(const FileDescriptor* file, const std::string& suffix) {
 }
 
 // Prints a namespace either opening '{' or closing '}' with commented name.
-void PrintNamespace(bool closing, const std::string& package, Printer* printer,
+void PrintNamespace(bool closing, const FileDescriptor* file, Printer* printer,
                     const std::string& suffix = "") {
-  std::vector<std::string> namespaces;
-  {
-    std::string s(package);
-    for (int i = s.find('.'); i != std::string::npos; i = s.find('.')) {
-      namespaces.emplace_back(s.substr(0, i));
-      s.erase(0, i + 1);
-    }
-    namespaces.emplace_back(s);
+  std::string s = file->options().GetExtension(sealed_package);
+  if (s.empty()) {
+    s = file->package();
   }
+
+  std::vector<std::string> namespaces;
+  for (int i = s.find('.'); i != std::string::npos; i = s.find('.')) {
+    namespaces.emplace_back(s.substr(0, i));
+    s.erase(0, i + 1);
+  }
+  namespaces.emplace_back(s);
 
   if (!suffix.empty()) {
     namespaces.emplace_back(suffix);
@@ -112,6 +114,7 @@ GetFieldDescriptorTypeMap() {
               {FieldDescriptor::TYPE_UINT64, {"uint64_t", "U64"}},
               {FieldDescriptor::TYPE_BOOL, {"bool", "Bool"}},
               {FieldDescriptor::TYPE_STRING, {"std::string", "String"}},
+              {FieldDescriptor::TYPE_BYTES, {"std::string", "String"}},
           });
   return map;
 }
@@ -133,7 +136,8 @@ bool GetCppTypeName(const FieldDescriptor* field, std::string* cpp_type_name,
     case FieldDescriptor::TYPE_INT32:
     case FieldDescriptor::TYPE_UINT32:
     case FieldDescriptor::TYPE_BOOL:
-    case FieldDescriptor::TYPE_STRING: {
+    case FieldDescriptor::TYPE_STRING:
+    case FieldDescriptor::TYPE_BYTES: {
       auto map = GetFieldDescriptorTypeMap();
       auto it = map->find(field->type());
       CHECK(it != map->end());  // Crash OK
@@ -180,6 +184,7 @@ bool PrintFieldDefinition(const FieldDescriptor* field, Printer* printer,
                      field->name());
       return true;
     case FieldDescriptor::TYPE_STRING:
+    case FieldDescriptor::TYPE_BYTES:
       printer->Print("std::string $field_name$;\n", "field_name",
                      field->name());
       return true;
@@ -242,6 +247,36 @@ bool PrintEnumDefinition(const EnumDescriptor* enum_descriptor,
   return true;
 }
 
+bool HasSecrets(const Descriptor* message) {
+  for (int i = 0; i < message->field_count(); i++) {
+    if (message->field(i)->options().GetExtension(secret)) {
+      return true;
+    }
+
+    // Protobuf API returns nullptr if the field is not a message type.
+    const Descriptor* child_message = message->field(i)->message_type();
+    if (child_message != nullptr && HasSecrets(child_message)) {
+      return true;
+    }
+  }
+  return false;
+}
+
+// Prints the operator overloads for a given message type.
+void PrintMessageOperatorOverloadsDeclaration(const Descriptor* message,
+                                              Printer* printer) {
+  if (HasSecrets(message)) {
+    // Do not define comparison operators for messages containing secrets.
+    return;
+  }
+  printer->Print(
+      "bool operator==(const $message_name$&, const $message_name$&);\n",
+      "message_name", message->name());
+  printer->Print(
+      "bool operator!=(const $message_name$&, const $message_name$&);\n\n",
+      "message_name", message->name());
+}
+
 // Prints the function signature for the encoding function for a given message
 // type.
 void PrintMessageEncoderSignature(const Descriptor* message, Printer* printer) {
@@ -261,6 +296,12 @@ void PrintMessageDecoderSignature(const Descriptor* message, Printer* printer) {
       "message_name", message->name());
 }
 
+std::string IteratorName(const FieldDescriptor* field) {
+  std::string out = field->full_name();
+  std::replace(out.begin(), out.end(), '.', '_');
+  return absl::StrCat(out, "_i");
+}
+
 // Prints statements that encode a given field.
 bool PrintFieldEncoding(const FieldDescriptor* field,
                         const std::string& encoder_name,
@@ -271,16 +312,19 @@ bool PrintFieldEncoding(const FieldDescriptor* field,
       {"encoder_name", encoder_name},
       {"full_field_name",
        absl::StrCat(enclosing_message_name, ".", field->name())},
+      {"iterator_name", IteratorName(field)},
   };
   if (field->is_repeated()) {
     printer->Print(map, "SC_CHECK($full_field_name$.size() < UINT32_MAX);\n");
     printer->Print(map,
                    "$encoder_name$.StartArray($full_field_name$.size());\n");
-    printer->Print(
-        map, "for (uint32_t i = 0; i < $full_field_name$.size(); i++) {\n");
+    printer->Print(map,
+                   "for (uint32_t $iterator_name$ = 0; $iterator_name$ < "
+                   "$full_field_name$.size(); $iterator_name$++) {\n");
     printer->Indent();
 
-    absl::StrAppend(&map["full_field_name"], "[i]");
+    absl::StrAppend(&map["full_field_name"],
+                    "[", map["iterator_name"], "]");
   }
   switch (field->type()) {
     case FieldDescriptor::TYPE_FLOAT:
@@ -291,6 +335,7 @@ bool PrintFieldEncoding(const FieldDescriptor* field,
     case FieldDescriptor::TYPE_UINT32:
     case FieldDescriptor::TYPE_BOOL:
     case FieldDescriptor::TYPE_STRING:
+    case FieldDescriptor::TYPE_BYTES:
       map.insert({"encoder_type_name", EncoderDecoderTypeName(field->type())});
       printer->Print(
           map, "$encoder_name$.$encoder_type_name$($full_field_name$);\n");
@@ -353,6 +398,7 @@ bool PrintFieldDecoding(const FieldDescriptor* field,
       {"decoder_name", decoder_name},
       {"full_field_name",
        absl::StrCat(enclosing_message_name, ".", field->name())},
+      {"iterator_name", IteratorName(field)},
   };
   if (field->is_repeated()) {
     printer->Print("{\n");
@@ -360,10 +406,12 @@ bool PrintFieldDecoding(const FieldDescriptor* field,
     printer->Print("uint32_t len = 0;\n");
     printer->Print(map, "$decoder_name$.StartArray(&len);\n");
     printer->Print(map, "$full_field_name$.resize(len);\n");
-    printer->Print(map, "for (uint32_t i = 0; i < len; i++) {\n");
+    printer->Print(map,
+                   "for (uint32_t $iterator_name$ = 0; $iterator_name$ < len; "
+                   "$iterator_name$++) {\n");
     printer->Indent();
 
-    absl::StrAppend(&map["full_field_name"], "[i]");
+    absl::StrAppend(&map["full_field_name"], "[", map["iterator_name"], "]");
   }
   switch (field->type()) {
     case FieldDescriptor::TYPE_FLOAT:
@@ -374,6 +422,7 @@ bool PrintFieldDecoding(const FieldDescriptor* field,
     case FieldDescriptor::TYPE_UINT32:
     case FieldDescriptor::TYPE_BOOL:
     case FieldDescriptor::TYPE_STRING:
+    case FieldDescriptor::TYPE_BYTES:
       map.insert({"decoder_type_name", EncoderDecoderTypeName(field->type())});
       PrintFieldDecodingInternal(
           map, "$decoder_name$.$decoder_type_name$(&($full_field_name$))",
@@ -414,6 +463,33 @@ bool PrintFieldDecoding(const FieldDescriptor* field,
     printer->Print("}\n");
   }
   return true;
+}
+
+void PrintMessageOperatorOverloadsDefinition(const Descriptor* message,
+                                             Printer* printer) {
+  if (HasSecrets(message)) {
+    // Do not define comparison operators for messages containing secrets.
+    return;
+  }
+  printer->Print(
+      "bool operator==(const $message_name$& a, const $message_name$& b) {\n",
+      "message_name", message->name());
+  printer->Indent();
+  for (int i = 0; i < message->field_count(); i++) {
+    printer->Print("if (a.$field_name$ != b.$field_name$) { return false; }\n",
+                   "field_name", message->field(i)->name());
+  }
+  printer->Print("return true;\n");
+  printer->Outdent();
+  printer->Print("}\n\n");
+
+  printer->Print(
+      "bool operator!=(const $message_name$& a, const $message_name$& b) {\n",
+      "message_name", message->name());
+  printer->Indent();
+  printer->Print("return !(a==b);");
+  printer->Outdent();
+  printer->Print("}\n\n");
 }
 
 // Prints the definition of the encoding function for a given message type.
@@ -637,7 +713,7 @@ void PrintServerFunctionDefinition(const MethodDescriptor* method,
       "::sealed::wasm::EncodedMessage encoded_response = "
       "Encode$response_message_type$(*response);\n"
 
-      "sealed::wasm::SetResponse(encoded_response);\n"
+      "::sealed::wasm::SetResponse(encoded_response);\n"
       "return true;\n");
 
   printer->Outdent();
@@ -657,6 +733,10 @@ inline constexpr std::string_view kCommonSourceExtension = ".common.cc";
 inline constexpr std::string_view kClientHeaderExtension = ".client.h";
 inline constexpr std::string_view kServerSourceExtension = ".server.cc";
 
+std::string CommonHeaderFilename(const FileDescriptor* file) {
+  return absl::StrCat(StripExtension(file->name()), kCommonHeaderExtension);
+}
+
 bool GenerateCommonHeaderFile(const FileDescriptor* file, Printer* printer,
                               std::string* error) {
   // Print header guard.
@@ -668,10 +748,23 @@ bool GenerateCommonHeaderFile(const FileDescriptor* file, Printer* printer,
   printer->Print(
       "#include \"third_party/sealedcomputing/rpc/encode_decode_lite.h\"\n");
   printer->Print("#include \"third_party/sealedcomputing/wasm3/base.h\"\n");
+
+  // Print includes for imports.
+  for (int i = 0; i < file->dependency_count(); i++) {
+    const FileDescriptor* dep = file->dependency(i);
+    std::string incl = absl::StrCat("\"", CommonHeaderFilename(dep), "\"");
+    // This is a bit of a weird hack to not error out if the include file does
+    // not exist. This can happen for deps like proto library annotations that
+    // do not actually produce any sealed_cc_proto_library code.
+    printer->Print(absl::StrCat("#if __has_include(", incl, ")\n"));
+    printer->Print(absl::StrCat("#include ", incl, "\n"));
+    printer->Print("#endif\n");
+  }
+
   printer->Print("\n");
 
   // Print namespace opening.
-  PrintNamespace(false, file->package(), printer);
+  PrintNamespace(false, file, printer);
 
   // Print definitions for top-level enums.
   for (int i = 0; i < file->enum_type_count(); i++) {
@@ -685,6 +778,9 @@ bool GenerateCommonHeaderFile(const FileDescriptor* file, Printer* printer,
     if (!PrintMessageDefinition(file->message_type(i), printer, error)) {
       return false;
     }
+
+    // Print operator overloads.
+    PrintMessageOperatorOverloadsDeclaration(file->message_type(i), printer);
 
     // Print declarations for encoding and decoding functions.
     PrintMessageEncoderSignature(file->message_type(i), printer);
@@ -700,7 +796,7 @@ bool GenerateCommonHeaderFile(const FileDescriptor* file, Printer* printer,
   }
 
   // Print namespace closing and header guard #endif.
-  PrintNamespace(true, file->package(), printer);
+  PrintNamespace(true, file, printer);
   printer->Print("\n#endif  // $guard$\n", "guard", guard);
   return true;
 }
@@ -716,10 +812,12 @@ bool GenerateCommonSourceFile(const FileDescriptor* file,
   printer->Print("\n");
 
   // Print namespace opening.
-  PrintNamespace(false, file->package(), printer);
+  PrintNamespace(false, file, printer);
 
-  // Print definitions for encoding and decoding functions.
+  // Print definitions for operator overloads and encoding/decoding functions.
   for (int i = 0; i < file->message_type_count(); i++) {
+    PrintMessageOperatorOverloadsDefinition(file->message_type(i), printer);
+
     if (!PrintMessageEncoderDefinition(file->message_type(i), printer, error)) {
       return false;
     }
@@ -729,7 +827,7 @@ bool GenerateCommonSourceFile(const FileDescriptor* file,
   }
 
   // Print namespace closing.
-  PrintNamespace(true, file->package(), printer);
+  PrintNamespace(true, file, printer);
   return true;
 }
 
@@ -748,7 +846,7 @@ bool GenerateClientHeaderFile(const FileDescriptor* file,
   printer->Print("\n");
 
   // Print namespace opening.
-  PrintNamespace(false, file->package(), printer, "client");
+  PrintNamespace(false, file, printer, "client");
 
   if (file->service_count() > 1) {
     *error = "proto file must define at most one sealed RPC service";
@@ -767,7 +865,7 @@ bool GenerateClientHeaderFile(const FileDescriptor* file,
   }
 
   // Print namespace closing and header guard #endif.
-  PrintNamespace(true, file->package(), printer, "client");
+  PrintNamespace(true, file, printer, "client");
   printer->Print("\n#endif  // $guard$\n", "guard", guard);
   return true;
 }
@@ -803,7 +901,7 @@ bool GenerateServerSourceFile(const FileDescriptor* file,
   printer->Print("\n");
 
   // Print namespace opening.
-  PrintNamespace(false, file->package(), printer, "server");
+  PrintNamespace(false, file, printer, "server");
   printer->Print("\n");
 
   if (file->service_count() > 1) {
@@ -819,13 +917,12 @@ bool GenerateServerSourceFile(const FileDescriptor* file,
     }
   }
 
-
   if (file->service_count() > 0) {
     PrintRegisterHandlersFunction(file, printer);
   }
 
   // Print namespace closing.
-  PrintNamespace(true, file->package(), printer, "server");
+  PrintNamespace(true, file, printer, "server");
   return true;
 }
 
@@ -835,12 +932,11 @@ bool SealedRpcCodeGen::Generate(const FileDescriptor* file,
                                 std::string* error) const {
   const std::string base_filename = StripExtension(file->name());
 
-  const std::string common_header_filename =
-      absl::StrCat(base_filename, kCommonHeaderExtension);
+  const std::string common_header_filename = CommonHeaderFilename(file);
   std::unique_ptr<proto2::io::ZeroCopyOutputStream> output_header_stream(
       generator_context->Open(common_header_filename));
   auto header_printer =
-      absl::make_unique<Printer>(output_header_stream.get(), '$');
+      std::make_unique<Printer>(output_header_stream.get(), '$');
   if (!GenerateCommonHeaderFile(file, header_printer.get(), error)) {
     return false;
   }
@@ -849,7 +945,7 @@ bool SealedRpcCodeGen::Generate(const FileDescriptor* file,
       generator_context->Open(
           absl::StrCat(base_filename, kCommonSourceExtension)));
   auto source_printer =
-      absl::make_unique<Printer>(output_source_stream.get(), '$');
+      std::make_unique<Printer>(output_source_stream.get(), '$');
   if (!GenerateCommonSourceFile(file, common_header_filename,
                                 source_printer.get(), error)) {
     return false;
@@ -859,7 +955,7 @@ bool SealedRpcCodeGen::Generate(const FileDescriptor* file,
       generator_context->Open(
           absl::StrCat(base_filename, kClientHeaderExtension)));
   auto client_header_printer =
-      absl::make_unique<Printer>(client_header_stream.get(), '$');
+      std::make_unique<Printer>(client_header_stream.get(), '$');
   if (!GenerateClientHeaderFile(file, common_header_filename,
                                 client_header_printer.get(), error)) {
     return false;
@@ -869,7 +965,7 @@ bool SealedRpcCodeGen::Generate(const FileDescriptor* file,
       generator_context->Open(
           absl::StrCat(base_filename, kServerSourceExtension)));
   auto server_source_printer =
-      absl::make_unique<Printer>(server_source_stream.get(), '$');
+      std::make_unique<Printer>(server_source_stream.get(), '$');
   if (!GenerateServerSourceFile(file, common_header_filename,
                                 server_source_printer.get(), error)) {
     return false;

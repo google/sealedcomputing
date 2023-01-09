@@ -1,8 +1,0 @@
-rpc Reverse(text: string) -> string
-rpc Error(errorMessage: string)
-rpc Panic(errorMessage: string)
-
-// The following RPCs proxy other RPCs.
-// Used to test outbound calls made by the enforcer.
-rpc ReverseOuter(text: string) -> string
-rpc ErrorOuter(errorMessage: string)

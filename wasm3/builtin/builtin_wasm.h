@@ -27,6 +27,8 @@ extern "C" {
 
 #include <stdint.h>
 
+#include "third_party/sealedcomputing/wasm3/builtin/wasm_types.h"
+
 #if defined(__EMSCRIPTEN__)
 #define WASM_EXPORT __attribute__((used)) __attribute__((visibility("default")))
 #else
@@ -143,6 +145,16 @@ int32_t biEncryptWithGroupKey(const void* plaintext, int32_t plaintext_len,
 
 // Writes the result of biEncryptWithGroupKey (ciphertext) to |buf|.
 void biEncryptWithGroupKeyFinish(void* buf, int32_t buf_len);
+
+// Serializes the group P256 ECIES public key in SEC1 compressed form:
+// - [ 0x02 or 0x03 | x : 32 ].
+void biGroupEciesP256PublicKeyToBin(void* bytes);
+
+// Decrypt using the group P256 ECIES private key. Returns true on success.
+// It must be valid to write `in_len` + 61 bytes to `out`.
+biBool biGroupEciesP256AesGcmHkdfDecrypt(const void* in, int32_t in_len,
+                                         const void* context_info,
+                                         int32_t context_info_len, void* out);
 
 // This is the entry point to a client C++ sealed application.
 int start(void);

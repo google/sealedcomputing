@@ -53,7 +53,7 @@ int main(int argc, const char** argv) {
     fprintf(stderr, "Usage: %s wasm_bytecode_file\n", argv[0]);
     return 1;
   }
-  status = sealed::wasm::InitWasm(in_bytes);
+  status = sealed::wasm::InitWasm(in_bytes.data(), in_bytes.size());
   if (!status) {
     return 1;
   }

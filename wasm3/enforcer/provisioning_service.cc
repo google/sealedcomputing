@@ -19,11 +19,12 @@
 #include "third_party/sealedcomputing/wasm3/base.h"
 #include "third_party/sealedcomputing/wasm3/bytestring.h"
 #include "third_party/sealedcomputing/wasm3/crypto.h"
+#include "third_party/sealedcomputing/wasm3/eidetic/service.common.h"
+#include "third_party/sealedcomputing/wasm3/eidetic/util.h"
 #include "third_party/sealedcomputing/wasm3/enforcer/hybrid_encryption.h"
 #include "third_party/sealedcomputing/wasm3/enforcer/provisioned_state.h"
 #include "third_party/sealedcomputing/wasm3/enforcer/provisioning_service.common.h"
 #include "third_party/sealedcomputing/wasm3/enforcer/server.h"
-#include "third_party/sealedcomputing/wasm3/keyset_policies/emulated_sealer.h"
 #include "third_party/sealedcomputing/wasm3/logging.h"
 #include "third_party/sealedcomputing/wasm3/status.h"
 #include "third_party/sealedcomputing/wasm3/statusor.h"
@@ -41,6 +42,16 @@ using sealed::wasm::RandBytes;
 using sealed::wasm::SecretByteString;
 using sealed::wasm::Status;
 using sealed::wasm::StatusOr;
+
+const char kServiceName[] = "LocalProvisioningService";
+const char kGetExternalSealerKeyMethodName[] = "GetExternalSealerKey";
+const char kSealerKeyContextInfo[] = "External Sealing Key";
+const char kGetEideticProvisioningChallengesMethodName[] =
+    "GetEideticProvisioningChallenges";
+const char kProvisionEideticQuorumMethodName[] = "ProvisionEideticQuorum";
+const char kReadEideticQuorumMethodName[] = "ReadEideticQuorum";
+const char kWriteEideticQuorumMethodName[] = "WriteEideticQuorum";
+const char kReadNewestEideticQuorumMethodName[] = "ReadNewestEideticQuorum";
 
 namespace {
 
@@ -67,18 +78,19 @@ StatusOr<ProvisionTaskResponse> ProvisionTask(
 
   if (task_config.sealer_type == SealerType::SEALER_TYPE_EXTERNAL) {
     std::string response;
-    sealed::wasm::HybridEncryptionPrivateKey private_key(
+    sealed::wasm::EciesX25519PrivateKey private_key(
         RandBytes(kHybridEncryptionSecretLen));
     SC_RETURN_IF_ERROR(sealed::wasm::global_server->SendSealetRpc(
-        kGetExternalSealerKeyMethodName, private_key.GetPublicKey(),
+        kGetExternalSealerKeyMethodName, *private_key.GetPublicKey(),
         &response));
     // Remove Tink prefix from response ciphertext.
     response = response.substr(wasm::kTinkPrefixLength);
     SC_ASSIGN_OR_RETURN(SecretByteString aes_gcm_key,
                         private_key.Decrypt(response, kSealerKeyContextInfo));
-    provisioned_state->SetTaskConfig(task_config, aes_gcm_key);
+    SC_RETURN_IF_ERROR(
+        provisioned_state->SetTaskConfig(task_config, aes_gcm_key));
   } else {
-    provisioned_state->SetTaskConfig(task_config);
+    SC_RETURN_IF_ERROR(provisioned_state->SetTaskConfig(task_config));
   }
   provisioned_state->SetTaskProvisionedState(RandBytes(kPreSecretLen));
 
@@ -94,6 +106,50 @@ StatusOr<ProvisionTaskResponse> ProvisionTask(
       provisioned_state->GetTaskPreSecret(), "");
   response.wrapped_blob = ciphertext.string();
 
+  SC_RETURN_IF_ERROR(
+      eidetic::ValidateEideticConfig(task_config.eidetic_config));
+
+  if (task_config.eidetic_config.signature_public_keys.empty()) {
+    return response;
+  }
+
+  auto challenge = RandBytes(32);
+  const P256Sign* req_signer =
+      provisioned_state->GetEideticProvisionRequestSigner();
+  std::string task_pubkey;
+  req_signer->GetVerifyingKey()->Serialize(&task_pubkey);
+  std::string eidetic_id = Sha256::Digest(task_pubkey);
+  eidetic::GetProvisioningChallengesRequest challenges_request;
+  for (const auto& pubkey :
+       task_config.eidetic_config.hybrid_encryption_public_keys) {
+    challenges_request.quorum_public_keys.push_back(pubkey);
+  }
+  std::string encoded_challenges_response;
+  SC_RETURN_IF_ERROR(sealed::wasm::global_server->SendSealetRpc(
+      kGetEideticProvisioningChallengesMethodName,
+      eidetic::EncodeGetProvisioningChallengesRequest(challenges_request)
+          .public_data,
+      &encoded_challenges_response));
+  SC_ASSIGN_OR_RETURN(
+      eidetic::GetProvisioningChallengesResponse challenges_response,
+      eidetic::DecodeGetProvisioningChallengesResponse(
+          ByteString(encoded_challenges_response)))
+  SC_ASSIGN_OR_RETURN(
+      eidetic::ProvisionRequest provision_request,
+      eidetic::CreateProvisionRequest(
+          task_config.eidetic_config, eidetic_id, challenge,
+          provisioned_state->GetTaskHmacKey(), challenges_response.challenges,
+          task_pubkey, req_signer));
+  std::string encoded_provision_response;
+  SC_RETURN_IF_ERROR(sealed::wasm::global_server->SendSealetRpc(
+      kProvisionEideticQuorumMethodName,
+      eidetic::EncodeProvisionRequest(provision_request).public_data,
+      &encoded_provision_response));
+  SC_ASSIGN_OR_RETURN(
+      eidetic::ProvisionResponse provision_response,
+      eidetic::DecodeProvisionResponse(ByteString(encoded_provision_response)))
+  SC_RETURN_IF_ERROR(eidetic::VerifyProvisionResponse(
+      task_config.eidetic_config, provision_response, challenge));
   return response;
 }
 
@@ -102,24 +158,25 @@ StatusOr<StartTaskResponse> StartTask(const StartTaskRequest& request) {
   SecretByteString task_pre_secret;
   if (request.task_config.sealer_type == SealerType::SEALER_TYPE_EXTERNAL) {
     std::string response;
-    sealed::wasm::HybridEncryptionPrivateKey private_key(
+    sealed::wasm::EciesX25519PrivateKey private_key(
         RandBytes(kHybridEncryptionSecretLen));
     SC_RETURN_IF_ERROR(sealed::wasm::global_server->SendSealetRpc(
-        kGetExternalSealerKeyMethodName, private_key.GetPublicKey(),
+        kGetExternalSealerKeyMethodName, *private_key.GetPublicKey(),
         &response));
     // Remove Tink prefix from response ciphertext.
     response = response.substr(wasm::kTinkPrefixLength);
     SC_ASSIGN_OR_RETURN(SecretByteString aes_gcm_key,
                         private_key.Decrypt(response, kSealerKeyContextInfo));
-    provisioned_state->SetTaskConfig(request.task_config, aes_gcm_key);
+    SC_RETURN_IF_ERROR(
+        provisioned_state->SetTaskConfig(request.task_config, aes_gcm_key));
   } else {
-    provisioned_state->SetTaskConfig(request.task_config);
+    SC_RETURN_IF_ERROR(provisioned_state->SetTaskConfig(request.task_config));
   }
 
   if (!provisioned_state->GetSealer()->Decrypt(request.wrapped_blob, "",
                                                &task_pre_secret)) {
     return Status(sealed::wasm::kInvalidArgument,
-                  "decrypting wrapped_blob failed");
+                  "decrypting task wrapped_blob failed");
   }
   provisioned_state->SetTaskProvisionedState(task_pre_secret);
 
@@ -127,7 +184,10 @@ StatusOr<StartTaskResponse> StartTask(const StartTaskRequest& request) {
   sealed::wasm::global_server->GetSecureListeningSocket()->SetSelfSigner(
       provisioned_state->GetTaskHandshakeSigner());
 
-  return StartTaskResponse();
+  StartTaskResponse response;
+  provisioned_state->GetTaskHandshakeSigner()->GetVerifyingKey()->Serialize(
+      &response.task_pubkey);
+  return response;
 }
 
 StatusOr<CallProvisionGroupMemberResponse> CallProvisionGroupMember(
@@ -197,7 +257,7 @@ ProvisionGroupResponse ProvisionGroupPrepareResponse(
                                         EncodeSealedGroupConfig(group_config))
                               .string();
   response.group_pubkey =
-      provisioned_state.GetGroupEncryptionKey()->GetPublicKey();
+      *(provisioned_state.GetGroupEncryptionKey()->GetPublicKey());
   return response;
 }
 }  // namespace
@@ -273,7 +333,7 @@ StatusOr<StartGroupResponse> StartGroup(const StartGroupRequest& request) {
   if (!provisioned_state->GetSealer()->Decrypt(
           request.wrapped_blob, EncodeSealedGroupConfig(request.group_config),
           &group_pre_secret)) {
-    return Status(kInvalidArgument, "decrypting wrapped_blob failed");
+    return Status(kInvalidArgument, "decrypting group wrapped_blob failed");
   }
   provisioned_state->SetGroupProvisionedState(group_pre_secret,
                                               request.group_config);

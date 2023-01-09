@@ -1,0 +1,10 @@
+syntax = "proto3";
+
+package sealed.protoc_plugin.tests.proto;
+
+import "third_party/sealedcomputing/protoc_plugin/tests/data.proto";
+
+message MoreMessage {
+  // Imported from data.proto.
+  SomeMessage message = 1;
+}

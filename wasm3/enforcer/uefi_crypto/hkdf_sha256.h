@@ -27,7 +27,7 @@ namespace sealed {
 namespace wasm {
 namespace uefi_crypto {
 
-SecretByteString HkdfSha256(size_t out_len, const ByteString& secret,
+SecretByteString HkdfSha256(size_t out_len, const SecretByteString& secret,
                             const ByteString& salt, const ByteString& info);
 
 }  // namespace uefi_crypto

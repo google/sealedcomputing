@@ -37,8 +37,8 @@ typedef bool*(CallWasmRpcCallback)(const std::string& name,
                                    const SecretByteString& request_secret);
 
 // Constructs and initializes the global state associated with the WASM3
-// interpreter and parses `in_bytes` as a WASM module.
-Status InitWasm(const std::string& in_bytes);
+// interpreter and parses `size` bytes at `data` as a WASM module.
+Status InitWasm(const char* data, size_t size);
 
 // Calls the `main` function in the WASM module parsed from calling InitWasm.
 // Returns non-OK status if InitWasm was not called before.

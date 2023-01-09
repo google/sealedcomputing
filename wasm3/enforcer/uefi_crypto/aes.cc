@@ -33,7 +33,7 @@ namespace sealed {
 namespace wasm {
 namespace uefi_crypto {
 
-void AesEncryptBlock(const ByteString& key, const ByteString& in,
+void AesEncryptBlock(const SecretByteString& key, const SecretByteString& in,
                      ByteString* out) {
   if (!global_initialized) {
     InitializeCryptoLib();
@@ -49,7 +49,7 @@ void AesEncryptBlock(const ByteString& key, const ByteString& in,
   AES_encrypt(in.data(), out->data(), &encrypt_key);
 }
 
-void AesDecryptBlock(const ByteString& key, const ByteString& in,
+void AesDecryptBlock(const SecretByteString& key, const ByteString& in,
                      SecretByteString* out) {
   if (!global_initialized) {
     InitializeCryptoLib();
@@ -65,7 +65,7 @@ void AesDecryptBlock(const ByteString& key, const ByteString& in,
   AES_decrypt(in.data(), out->data(), &decrypt_key);
 }
 
-StatusOr<ByteString> AesGcmEncrypt(const ByteString& key,
+StatusOr<ByteString> AesGcmEncrypt(const SecretByteString& key,
                                    const ByteString& nonce,
                                    const SecretByteString& plaintext,
                                    const ByteString& associated_data) {
@@ -108,7 +108,7 @@ StatusOr<ByteString> AesGcmEncrypt(const ByteString& key,
   return ciphertext;
 }
 
-StatusOr<SecretByteString> AesGcmDecrypt(const ByteString& key,
+StatusOr<SecretByteString> AesGcmDecrypt(const SecretByteString& key,
                                          const ByteString& nonce,
                                          const ByteString& ciphertext,
                                          const ByteString& associated_data) {

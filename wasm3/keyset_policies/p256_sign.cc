@@ -42,7 +42,7 @@ constexpr size_t kP256SignatureLength = 64;
 
 SecretByteString ComputeDigest(const ByteString& purpose,
                                const ByteString& message) {
-  return uefi_crypto::Sha256(uefi_crypto::Sha256(purpose) + message);
+  return uefi_crypto::Sha256(purpose + ByteString(1, '\0') + message);
 }
 
 }  // namespace
@@ -105,6 +105,13 @@ std::unique_ptr<P256Sign> P256Sign::CreateFromSecret(
   constexpr char kPurpose[] = "Provisioned task signer.";
   sign->key_ = uefi_crypto::DeriveP256KeyFromSecret(secret, kPurpose);
   return sign;
+}
+
+SecretByteString P256Sign::Serialize() const {
+  const BIGNUM* bignum = EC_KEY_get0_private_key(key_);
+  SecretByteString output(kP256ScalarNbytes);
+  SC_CHECK_SSL_OK(BN_bn2bin_padded(output.data(), kP256ScalarNbytes, bignum));
+  return output;
 }
 
 void P256Verify::Serialize(std::string* output) const {

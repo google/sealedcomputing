@@ -30,10 +30,16 @@ namespace wasm {
 
 namespace {
 
+// This is the lowest level, where we do data chunking to avoid sending more
+// than SimpleSevIo can handle at once.  The other end must use Write below,
+// rather than libc's read.
 Status Read(int fd, uint8_t* buf, size_t size) {
   size_t bytes_read = 0;
   while (bytes_read < size) {
-    ssize_t b = read(fd, buf, size - bytes_read);
+    size_t num_bytes = size - bytes_read <= kSimpleSevIoChunkSize
+                           ? size - bytes_read
+                           : kSimpleSevIoChunkSize;
+    ssize_t b = read(fd, buf, num_bytes);
     if (b < 0) {
       if (errno == EAGAIN || errno == EINTR) {
         continue;
@@ -48,10 +54,16 @@ Status Read(int fd, uint8_t* buf, size_t size) {
   return Status();
 }
 
+// This is the lowest level, where we do data chunking to avoid sending more
+// than SimpleSevIo can handle at once.  The other end must use Read above,
+// rather than libc's read.
 Status Write(int fd, uint8_t* buf, size_t size) {
   size_t bytes_written = 0;
   while (bytes_written < size) {
-    ssize_t b = write(fd, buf, size - bytes_written);
+    size_t num_bytes = size - bytes_written <= kSimpleSevIoChunkSize
+                           ? size - bytes_written
+                           : kSimpleSevIoChunkSize;
+    ssize_t b = write(fd, buf, num_bytes);
     if (b < 0) {
       if (errno == EAGAIN || errno == EINTR) {
         continue;
@@ -108,8 +120,11 @@ FdSocket::FdSocket(const EndpointId& peer, const EndpointId& self,
 void FdSocket::SendEnvelope(const Envelope& envelope) {
   ByteString encoded_envelope = EncodeEnvelope(envelope);
   uint32_t length = htole32(encoded_envelope.size());
-  Write(out_fd_, reinterpret_cast<uint8_t*>(&length), kEnvelopePrefixLength);
-  Write(out_fd_, encoded_envelope.data(), encoded_envelope.size());
+  // TODO(b/263985063): Verify that it's desirable to drop these errors.
+  static_cast<void>(Write(out_fd_, reinterpret_cast<uint8_t*>(&length),
+                          kEnvelopePrefixLength));
+  static_cast<void>(
+      Write(out_fd_, encoded_envelope.data(), encoded_envelope.size()));
 }
 
 void FdSocket::Send(const ByteString& payload,

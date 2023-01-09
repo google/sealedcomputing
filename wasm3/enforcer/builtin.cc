@@ -477,7 +477,7 @@ int32_t biEncryptWithGroupKey(const void* plaintext_buf, int32_t plaintext_len,
       new sealed::wasm::SecretByteString(
           sealed::wasm::global_server->GetGroupDecryptionKey()
               ->GetPublicKey()
-              .Encrypt(plaintext, context_info));
+              ->Encrypt(plaintext, context_info));
   return sealed::wasm::global_encrypt_with_group_key_ctx->size();
 }
 
@@ -495,4 +495,58 @@ void biEncryptWithGroupKeyFinish(void* buf, int32_t buf_len) {
   memcpy(buf, sealed::wasm::global_encrypt_with_group_key_ctx->data(),
          sealed::wasm::global_encrypt_with_group_key_ctx->size());
   sealed::wasm::global_encrypt_with_group_key_ctx->clear();
+}
+
+m3ApiRawFunction(biGroupEciesP256PublicKeyToBin_wrapper) {
+  m3ApiGetArgMem(void*, bytes);
+  SC_CHECK(sealed::wasm::MemCheckRange(bytes, P256_NBYTES_COMPRESSED));
+  biGroupEciesP256PublicKeyToBin(bytes);
+  m3ApiSuccess();
+}
+
+void biGroupEciesP256PublicKeyToBin(void* bytes) {
+  const sealed::wasm::EciesP256PrivateKey* privkey =
+      sealed::wasm::global_server->GetProvisionedState()
+          ->GetGroupP256EncryptionKey();
+  sealed::wasm::ByteString pubkey = *privkey->GetPublicKey();
+  SC_CHECK_EQ(pubkey.size(), P256_NBYTES_COMPRESSED);
+  memcpy(bytes, pubkey.data(), pubkey.size());
+}
+
+m3ApiRawFunction(biGroupEciesP256AesGcmHkdfDecrypt_wrapper) {
+  m3ApiReturnType(biBool);
+  m3ApiGetArgMem(const void*, in);
+  m3ApiGetArg(int32_t, in_len);
+  m3ApiGetArgMem(const void*, context_info);
+  m3ApiGetArg(int32_t, context_info_len);
+  m3ApiGetArgMem(void*, out);
+  SC_CHECK(sealed::wasm::MemCheckRange(in, in_len));
+  SC_CHECK(sealed::wasm::MemCheckRange(context_info, context_info_len));
+  size_t padding = P256_NBYTES_COMPRESSED +
+                   sealed::wasm::uefi_crypto::kAesGcmNonceLength +
+                   sealed::wasm::uefi_crypto::kAesGcmTagLength;
+  auto in_size = static_cast<size_t>(in_len);
+  if (in_size >= padding) {
+    SC_CHECK(sealed::wasm::MemCheckRange(out, in_size - padding));
+    biBool success = biGroupEciesP256AesGcmHkdfDecrypt(in, in_len, context_info,
+                                                       context_info_len, out);
+    m3ApiReturn(success);
+  } else {
+    m3ApiReturn(false);
+  }
+}
+
+biBool biGroupEciesP256AesGcmHkdfDecrypt(const void* in, int32_t in_len,
+                                         const void* context_info,
+                                         int32_t context_info_len, void* out) {
+  const sealed::wasm::EciesP256PrivateKey* privkey =
+      sealed::wasm::global_server->GetProvisionedState()
+          ->GetGroupP256EncryptionKey();
+  auto status_or_plaintext =
+      privkey->Decrypt(std::string(reinterpret_cast<const char*>(in), in_len),
+                       std::string(reinterpret_cast<const char*>(context_info),
+                                   context_info_len));
+  if (!status_or_plaintext) return false;
+  memcpy(out, status_or_plaintext->data(), status_or_plaintext->size());
+  return true;
 }

@@ -12,9 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-#include <cstddef>
-#include <cstdint>
-#include <cstring>
+// LIVE_SNIPPET_BLOCK_1_START
 #include <string>
 #include <unordered_map>
 
@@ -24,7 +22,9 @@
 #include "third_party/sealedcomputing/wasm3/status.h"
 #include "third_party/sealedcomputing/wasm3/statusor.h"
 
-namespace sealed::e2e_authn::server {
+namespace sealed {
+namespace e2e_authn {
+namespace server {
 
 using ::sealed::wasm::SecretByteString;
 using ::sealed::wasm::Status;
@@ -35,7 +35,7 @@ namespace {
 struct Vault {
   SecretByteString kf;
   SecretByteString recovery_key;
-  const uint32_t bad_guess_limit = 10;
+  uint32_t bad_guess_limit = 10;
 
   // If 0 then recovery key is unrecoverable.
   // Resets to `max_bad_guess_counter` on a good guess.
@@ -44,10 +44,17 @@ struct Vault {
 };
 
 // Map from public ID to Vault.
+std::unordered_map<std::string, Vault>* global_map;
+
 std::unordered_map<std::string, Vault>* ServerScopedMap() {
-  static auto* global_map = new std::unordered_map<std::string, Vault>();
+  if (global_map != nullptr) {
+    return global_map;
+  }
+  global_map = new std::unordered_map<std::string, Vault>();
   return global_map;
 }
+}  // namespace
+// LIVE_SNIPPET_BLOCK_1_END
 
 int CT_memcmp(const char* a, const uint8_t* b, size_t len) {
   uint8_t x = 0;
@@ -57,21 +64,17 @@ int CT_memcmp(const char* a, const uint8_t* b, size_t len) {
   return x;
 }
 
-}  // namespace
-
-StatusOr<EchoResponse> Echo(const EchoRequest& request) {
-  return EchoResponse{request.request};
-}
-
+// LIVE_SNIPPET_BLOCK_2_START
 StatusOr<EnrollResponse> Enroll(const EnrollRequest& request) {
   if (ServerScopedMap()->find(request.recovery_key_identifier) !=
       ServerScopedMap()->end()) {
     return Status(sealed::wasm::kInvalidArgument, "id already registered");
   }
-  ServerScopedMap()->insert(
-      {request.recovery_key_identifier,
-       {request.knowledge_factor, request.recovery_key, request.bad_guess_limit,
-        request.bad_guess_limit}});
+  Vault& vault = (*ServerScopedMap())[request.recovery_key_identifier];
+  vault.kf = request.knowledge_factor;
+  vault.recovery_key = request.recovery_key;
+  vault.bad_guess_limit = request.bad_guess_limit;
+  vault.bad_guesses_left = request.bad_guess_limit;
   return EnrollResponse();
 }
 
@@ -89,30 +92,32 @@ StatusOr<OpenResponse> Open(const OpenRequest& request) {
                  request.knowledge_factor.size())) {
     // Claim was correct, open the vault and reset the bad guess count.
     vault.bad_guesses_left = vault.bad_guess_limit;
-    return OpenResponse{true, vault.recovery_key.string(),
-                        vault.bad_guesses_left};
+    OpenResponse response;
+    response.is_guess_correct = true;
+    response.recovery_key = vault.recovery_key.string();
+    response.bad_guesses_left = vault.bad_guesses_left;
+    return response;
   }
   // Claim was not correct, count a bad guess.
   vault.bad_guesses_left--;
-  return OpenResponse{false, "", vault.bad_guesses_left};
+  OpenResponse response;
+  response.is_guess_correct = false;
+  response.bad_guesses_left = vault.bad_guesses_left;
+  return response;
 }
 
-StatusOr<DecryptAndEchoResponse> DecryptAndEcho(
-    const DecryptAndEchoRequest& request) {
-  wasm::ByteString raw_ciphertext =
-      request.ciphertext.substr(wasm::kTinkPrefixLength);
-  SC_ASSIGN_OR_RETURN(
-      wasm::SecretByteString plaintext,
-      wasm::DecryptWithGroupKey(raw_ciphertext, /*context_info=*/""));
-  return DecryptAndEchoResponse{plaintext.string()};
-}
+}  // namespace server
+}  // namespace e2e_authn
+}  // namespace sealed
+// LIVE_SNIPPET_BLOCK_2_END
 
-}  // namespace sealed::e2e_authn::server
-
+// LIVE_SNIPPET_BLOCK_3_START
 WASM_EXPORT int start() {
   // Do server initialization here: i.e. initializing all server-scoped state.
   sealed::e2e_authn::server::ServerScopedMap();
 
+  sealed::e2e_authn::server::RegisterRpcHandlers();
   sealed::wasm::Serve();
   return 0;
 }
+// LIVE_SNIPPET_BLOCK_3_END

@@ -16,12 +16,16 @@
 
 #include "third_party/sealedcomputing/wasm3/bytestring.h"
 #include "third_party/sealedcomputing/wasm3/enforcer/crypto_internal.h"
+#include "third_party/sealedcomputing/wasm3/enforcer/hybrid_encryption.h"
 #include "third_party/sealedcomputing/wasm3/enforcer/provisioning_service.common.h"
+#include "third_party/sealedcomputing/wasm3/enforcer/uefi_snp_guest/kdf.h"
 #include "third_party/sealedcomputing/wasm3/handshaker.h"
 #include "third_party/sealedcomputing/wasm3/keyset_policies/emulated_sealer.h"
 #include "third_party/sealedcomputing/wasm3/keyset_policies/external_sealer.h"
 #include "third_party/sealedcomputing/wasm3/keyset_policies/p256_sign.h"
 #include "third_party/sealedcomputing/wasm3/keyset_policies/task_sealer.h"
+#include "third_party/sealedcomputing/wasm3/status.h"
+#include "third_party/sealedcomputing/wasm3/statusor.h"
 
 namespace sealed {
 namespace wasm {
@@ -38,13 +42,18 @@ constexpr char kSigningHKDFInfo[] =
 // Info string used to derive group secret from shared group pre-secret.
 constexpr char kGroupSecretHkDFInfo[] =
     "HKDF info: sealed computing v0: group secret";
+// Info string used to derive HMAC secret from pre-secret.
+constexpr char kHMACInfo[] = "HKDF info: sealed computing v0: HMAC";
+// Info string used to derive BaseSealer key from hardware-bound secret for
+// SEALER_TYPE_CPU.
+constexpr char kSealerHKDFInfo[] = "HKDF info: sealed computing v0: cpu sealer";
 
 }  // namespace
 
-void ProvisionedState::SetTaskConfig(const SealedTaskConfig& task_config,
-                                     const SecretByteString& external_key) {
+Status ProvisionedState::SetTaskConfig(const SealedTaskConfig& task_config,
+                                       const SecretByteString& external_key) {
   task_config_ = task_config;
-  DeriveTaskSealer(external_key);
+  return DeriveTaskSealer(external_key);
 }
 
 void ProvisionedState::SetTaskProvisionedState(
@@ -63,13 +72,21 @@ void ProvisionedState::SetGroupProvisionedState(
 
 void ProvisionedState::DeriveTaskKeys() {
   std::string hkdf_info = kSigningHKDFInfo;
-  hkdf_info.append(EncodeSealedTaskConfig(task_config_).public_data);
+  ByteString encoded_sealed_task =
+      EncodeSealedTaskConfig(task_config_).public_data;
+  hkdf_info.append(encoded_sealed_task);
   SecretByteString signing_key_secret =
       enforcer::Hkdf(kSecretLen, task_pre_secret_, kCommonHKDFSalt, hkdf_info);
   task_handshake_signer_ =
       P256Sign::CreateFromSecret(signing_key_secret, kHandshakeSigningPurpose);
   task_bytecode_signer_ =
       P256Sign::CreateFromSecret(signing_key_secret, kBytecodeSigningPurpose);
+  task_eidetic_provision_request_signer_ = P256Sign::CreateFromSecret(
+      signing_key_secret, kProvisionRequestSigningPurpose);
+  hkdf_info = kHMACInfo;
+  hkdf_info.append(encoded_sealed_task);
+  task_hmac_key_ =
+      enforcer::Hkdf(kSecretLen, task_pre_secret_, kCommonHKDFSalt, hkdf_info);
 }
 
 void ProvisionedState::DeriveGroupKeys() {
@@ -77,11 +94,13 @@ void ProvisionedState::DeriveGroupKeys() {
   hkdf_info.append(EncodeSealedGroupConfig(group_config_).public_data);
   SecretByteString group_secret =
       enforcer::Hkdf(kSecretLen, group_pre_secret_, kCommonHKDFSalt, hkdf_info);
-  group_he_privkey_ =
-      std::make_unique<HybridEncryptionPrivateKey>(group_secret);
+  group_he_privkey_ = std::unique_ptr<HybridEncryptionPrivateKey>(
+      new EciesX25519PrivateKey(group_secret));
+  group_p256_privkey_ = std::make_unique<EciesP256PrivateKey>(group_secret);
 }
 
-void ProvisionedState::DeriveTaskSealer(const SecretByteString& external_key) {
+Status ProvisionedState::DeriveTaskSealer(
+    const SecretByteString& external_key) {
   std::unique_ptr<Sealer> base_sealer;
   switch (task_config_.sealer_type) {
     case SealerType::SEALER_TYPE_TEST:
@@ -94,6 +113,19 @@ void ProvisionedState::DeriveTaskSealer(const SecretByteString& external_key) {
       base_sealer = std::unique_ptr<Sealer>(res->release());
       break;
     }
+    case SealerType::SEALER_TYPE_CPU: {
+      SC_ASSIGN_OR_RETURN(SecretByteString cpu_bound_secret,
+                          enforcer::GetSevSnpSealingKey());
+      // Derive a key bound to (SEV-SNP KDF output, Sealer purpose).
+      SecretByteString key =
+          enforcer::Hkdf(enforcer::kAes128KeyLength, cpu_bound_secret,
+                         kCommonHKDFSalt, kSealerHKDFInfo);
+      SC_ASSIGN_OR_RETURN(
+          auto res,
+          ExternalSealer::Create(std::make_unique<enforcer::AesGcm>(key)));
+      base_sealer = std::unique_ptr<Sealer>(res.release());
+      break;
+    }
     default:
       SC_LOG(FATAL) << "Unexpected sealer type";
   }
@@ -102,6 +134,7 @@ void ProvisionedState::DeriveTaskSealer(const SecretByteString& external_key) {
                                 EncodeSealedTaskConfig(task_config_));
   SC_CHECK_OK(res);
   sealer_ = std::move(*res);
+  return Status::OkStatus();
 }
 
 }  // namespace wasm

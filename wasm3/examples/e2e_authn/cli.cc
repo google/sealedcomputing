@@ -31,11 +31,16 @@
 #include "third_party/sealedcomputing/wasm3/enforcer/hybrid_encryption_tink.h"
 #include "third_party/sealedcomputing/wasm3/enforcer/provisioning_service.client.h"
 #include "third_party/sealedcomputing/wasm3/enforcer/provisioning_service.common.h"
+#include "third_party/sealedcomputing/wasm3/examples/decrypt_and_echo/decrypt_and_echo.client.h"
+#include "third_party/sealedcomputing/wasm3/examples/decrypt_and_echo/decrypt_and_echo.common.h"
 #include "third_party/sealedcomputing/wasm3/examples/e2e_authn/e2e_authn.client.h"
 #include "third_party/sealedcomputing/wasm3/examples/e2e_authn/e2e_authn.common.h"
+#include "third_party/sealedcomputing/wasm3/examples/echo/echo.client.h"
+#include "third_party/sealedcomputing/wasm3/examples/echo/echo.common.h"
 #include "third_party/sealedcomputing/wasm3/socket.h"
 #include "third_party/tink/cc/hybrid/hybrid_config.h"
 #include "third_party/tink/cc/hybrid_encrypt.h"
+#include "third_party/tink/cc/keyset_handle.h"
 #include "util/shell/command-line.h"
 #include "util/task/status_macros.h"
 
@@ -52,8 +57,9 @@ using ::sealed::wasm::StatusOr;
 
 absl::StatusOr<std::string> EncryptToPublicKey(const std::string& public_key,
                                                const std::string& plaintext) {
-  ASSIGN_OR_RETURN(auto serialized_tink_public_keyset,
-                   wasm::GetTinkPublicKeyset(public_key));
+  ASSIGN_OR_RETURN(
+      auto serialized_tink_public_keyset,
+      wasm::GetTinkPublicKeysetFromEciesX25519PublicKey(public_key));
   ASSIGN_OR_RETURN(auto keyset_handle, crypto::tink::KeysetHandle::ReadNoSecret(
                                            serialized_tink_public_keyset));
   RETURN_IF_ERROR(crypto::tink::HybridConfig::Register());
@@ -191,7 +197,8 @@ class ClientTool : public CommandLine {
   int CallEcho(const std::string& arg) {
     std::unique_ptr<Socket> socket =
         client_endpoint_->CreateInsecureSocket(task_pubkey_);
-    StatusOr<EchoResponse> echo_response = Echo({arg}, socket.get());
+    StatusOr<echo::EchoResponse> echo_response =
+        echo::client::Echo({arg}, socket.get());
     if (!echo_response.ok()) {
       LOG(ERROR) << "Error calling RPC method Echo. Code: "
                  << StatusCodeToString(echo_response.code())
@@ -314,8 +321,9 @@ class ClientTool : public CommandLine {
     }
     std::unique_ptr<Socket> socket =
         client_endpoint_->CreateInsecureSocket(task_pubkey_);
-    StatusOr<DecryptAndEchoResponse> response =
-        DecryptAndEcho({ciphertext->string()}, socket.get());
+    StatusOr<decrypt_and_echo::DecryptAndEchoResponse> response =
+        decrypt_and_echo::client::DecryptAndEcho({ciphertext->string()},
+                                                 socket.get());
     if (!response.ok()) {
       LOG(ERROR) << "Error calling DecryptAndEcho: " << response.status();
       return 1;

@@ -101,6 +101,30 @@ void biHkdf(int32_t out_len, const void* secret, int32_t secret_len,
 
 void biRandBytes(void* buf, int32_t len);
 
+biOpaqueEciesX25519PrivateKey biGenEciesX25519PrivateKey();
+biOpaqueEciesX25519PublicKey biEciesX25519PublicKeyFromPrivateKey(
+    biOpaqueEciesX25519PrivateKey privkey);
+biOpaqueEciesX25519PublicKey biEciesX25519PublicKeyFromBin(const void* bytes);
+void biDestroyEciesX25519PrivateKey(biOpaqueEciesX25519PrivateKey privkey);
+void biDestroyEciesX25519PublicKey(biOpaqueEciesX25519PublicKey pubkey);
+
+void biEciesX25519AesGcmHkdfEncrypt(biOpaqueEciesX25519PublicKey pubkey,
+                                    const void* in, int32_t in_len,
+                                    const void* context_info,
+                                    int32_t context_info_len, void* out);
+biBool biEciesX25519AesGcmHkdfDecrypt(biOpaqueEciesX25519PrivateKey privkey,
+                                      const void* in, int32_t in_len,
+                                      const void* context_info,
+                                      int32_t context_info_len, void* out);
+
+biOpaqueEciesP256PublicKey biEciesP256PublicKeyFromBin(const void* bytes);
+void biDestroyEciesP256PublicKey(biOpaqueEciesP256PublicKey pubkey);
+
+void biEciesP256AesGcmHkdfEncrypt(biOpaqueEciesP256PublicKey pubkey,
+                                  const void* in, int32_t in_len,
+                                  const void* context_info,
+                                  int32_t context_info_len, void* out);
+
 #ifdef __cplusplus
 }  // extern "C"
 #endif

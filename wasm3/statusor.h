@@ -25,7 +25,7 @@ namespace sealed {
 namespace wasm {
 
 template <class T>
-class StatusOr {
+class [[nodiscard]] StatusOr {
  public:
   explicit StatusOr() : data_(), status_(StatusCode::kUnknown, "") {}
   StatusOr(StatusCode error_code, const std::string& error_message)
@@ -204,12 +204,13 @@ bool operator!=(StatusCode lhs, const StatusOr<T>& rhs) {
   SC_ASSERT_OK_AND_ASSIGN_IMPL_(SC_CONCAT_IMPL_(_statusor, __LINE__), lhs, expr)
 
 // For use in gUnit tests only.
-#define SC_ASSERT_OK_AND_ASSIGN_IMPL_(statusor, lhs, expr)           \
-  auto statusor = (expr);                                            \
-  if (!statusor.ok()) {                                              \
-    FAIL() << "Asserting OK StatusOr: Actual: " << statusor.status() \
-           << " with message: " << statusor.message();               \
-  }                                                                  \
+#define SC_ASSERT_OK_AND_ASSIGN_IMPL_(statusor, lhs, expr)        \
+  auto statusor = (expr);                                         \
+  if (!statusor.ok()) {                                           \
+    FAIL() << "Asserting OK StatusOr: Actual: "                   \
+           << ::sealed::wasm::StatusCodeToString(statusor.code()) \
+           << " with message: " << statusor.message();            \
+  }                                                               \
   lhs = std::move(*(statusor));
 
 #define SC_CONCAT_IMPL_INNER_(x, y) x##y

@@ -12,45 +12,54 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-#include <algorithm>
-
 #include "third_party/sealedcomputing/wasm3/base.h"
 #include "third_party/sealedcomputing/wasm3/logging.h"
 #include "third_party/sealedcomputing/wasm3/status.h"
 #include "third_party/sealedcomputing/wasm3/statusor.h"
-#include "third_party/sealedcomputing/wasm3/tests/serve_panic_proto.h"
+#include "third_party/sealedcomputing/wasm3/tests/serve_panic.client.h"
+#include "third_party/sealedcomputing/wasm3/tests/serve_panic.common.h"
 
 WASM_EXPORT int start() {
+  sealed::wasm::tests::server::RegisterRpcHandlers();
   sealed::wasm::Serve();
   return 0;
 }
 
-namespace sealed::serve_panic::server {
+namespace sealed {
+namespace wasm {
+namespace tests {
+namespace server {
 
 using sealed::wasm::Status;
 using sealed::wasm::StatusOr;
 
-StatusOr<std::string> Reverse(const std::string& text) {
-  std::string result = text;
-  std::reverse(result.begin(), result.end());
-  return result;
+StatusOr<ReverseResponse> Reverse(const ReverseRequest& request) {
+  ReverseResponse response;
+  response.text.resize(request.text.size());
+  for (size_t i = 0; i < request.text.size(); ++i) {
+    response.text[i] = request.text[request.text.size() - 1 - i];
+  }
+  return response;
 }
 
-Status Error(const std::string& errorMessage) {
-  return Status(wasm::kInternal, errorMessage);
+StatusOr<ReverseResponse> Error(const ReverseRequest& request) {
+  return Status(wasm::kInternal, request.text);
 }
 
-Status Panic(const std::string& errorMessage) {
+StatusOr<ReverseResponse> Panic(const ReverseRequest& request) {
   SC_PANIC() << "This error is expected.";
   return wasm::Status::OkStatus();
 }
 
-StatusOr<std::string> ReverseOuter(const std::string& text) {
-  return client::Reverse(text);
+StatusOr<ReverseResponse> ReverseOuter(const ReverseRequest& request) {
+  return client::Reverse(request);
 }
 
-Status ErrorOuter(const std::string& errorMessage) {
-  return client::Error(errorMessage);
+StatusOr<ReverseResponse> ErrorOuter(const ReverseRequest& request) {
+  return client::Error(request);
 }
 
-}  // namespace sealed::serve_panic::server
+}  // namespace server
+}  // namespace tests
+}  // namespace wasm
+}  // namespace sealed

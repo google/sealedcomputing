@@ -24,6 +24,13 @@
 namespace sealed {
 namespace wasm {
 
+// Ideally, we'd include consts.h from the SimpleSevIo library, but:
+// 1) This is not open-source yet, and would break our external builds.
+// 2) Only a cc_library target exists, while this code compiles both on the
+//    inside of the enclave, and outside.
+// TODO(b/259311886): Delete this when we close this bug.
+constexpr size_t kSimpleSevIoChunkSize = 4096;
+
 // Uses file descriptors to send and receive messages.
 class FdSocket : public SocketInternal {
  public:

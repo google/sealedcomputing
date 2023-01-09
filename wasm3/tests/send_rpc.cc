@@ -31,8 +31,10 @@ extern "C" int WASM_EXPORT Outer_RPC(int32_t request_length,
 
   ::sealed::wasm::ByteString response;
   sealed::wasm::SecretByteString response_secret;
-  sealed::wasm::SendRpc("HostService", "Inner", request, /*request_secret=*/"",
-                        /*deadline=*/0, &response, &response_secret);
+  SC_CHECK_OK(sealed::wasm::SendRpc("HostService", "Inner", request,
+                                    /*request_secret=*/"",
+                                    /*deadline=*/0, &response,
+                                    &response_secret));
   biSetResponse(response.data(), response.size());
   return 1;
 }

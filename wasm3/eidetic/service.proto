@@ -1,0 +1,134 @@
+syntax = "proto3";
+
+package sealed.eidetic;
+
+// Provides an Eidetic quorum as a sealed RPC service.
+// This is intended to be called by sealing policies and to be implemented
+// "locally" by the hosting Sealet which in turn forwards the request to Eidetic
+// nodes over a standard Stubby/gRPC channel.
+service LocalEideticQuorumService {
+  // Get provisioning challenges from each Eidetic server.
+  rpc GetProvisioningChallenges(GetProvisioningChallengesRequest)
+      returns (GetProvisioningChallengesResponse);
+
+  // Reads state from a provisioned eidetic_id.
+  rpc Read(ReadRequest) returns (ReadResponse);
+
+  // Writes state to a provisioned eidetic_id.
+  rpc Write(WriteRequest) returns (WriteResponse);
+
+  // Reads newest state in an Eidetic quorum.
+  // Note: this is not necessarily the consensus state. This is intended to be
+  // called when there appears to be no consensus.
+  // Returns when the call to each quorum member either succeeds or fails with
+  // a non-retryable error.
+  // ReadRequest.threshold is ignored.
+  // On success,
+  // - ReadResponse contains at least one non-empty SingleResponse representing
+  //   the newest state seen in the Eidetic quorum.
+  // - all non-empty SingleResponses agree on the same (state, version).
+  rpc ReadNewest(ReadRequest) returns (ReadResponse);
+}
+
+// Equivalent to EideticBlock definition in
+// http://google3/security/folsom/eidetic/proto/eidetic.proto;l=75;rcl=425643604
+message EideticBlock {
+  bytes challenges_root = 1;
+  bytes states_root = 2;
+  bytes prev_block_hash = 3;
+  bytes rand_bytes = 4;
+  uint64 time_microseconds = 5;
+  uint64 time_delta_microseconds = 6;
+  uint64 counter = 7;
+  bytes signature = 8;
+}
+
+message GetProvisioningChallengesRequest {
+  // Eidetic public keys, same as in ProvisionRequest.
+  repeated bytes quorum_public_keys = 1;
+}
+
+message GetProvisioningChallengesResponse {
+  // Provisioning challenges in the same order as quorum_public_keys in the
+  // request.
+  repeated bytes challenges = 1;
+}
+
+message ProvisionRequest {
+  // Identifies an Eidetic quorum by listing each member's verifying public key.
+  // This public key is used for verifying the Eidetic block signature from
+  // the quorum member.
+  repeated bytes quorum_public_keys = 1;
+
+  // Contains the same MAC secret encrypted to each quorum member's hybrid
+  // encryption public key, in the same order as `quorum_public_keys`.
+  // Length must be equal to quorum size.
+  repeated bytes thm_encrypted_mac_secret = 2;
+  bytes eidetic_id = 3;
+  bytes challenge = 4;
+  repeated bytes provisioning_challenges = 5;
+  bytes public_key = 6;
+  repeated bytes signatures = 7;
+}
+
+// Response to Provision from each quroum member.
+// An empty message implies no conclusive response from the quorum member.
+message SingleProvisionResponse {
+  EideticBlock eidetic_block = 1;
+  repeated bytes challenge_merkle_proof = 2;
+}
+
+message ProvisionResponse {
+  // Length must be equal to quorum size.
+  // Order matches that of `ProvisionRequest.quorum_public_keys`.
+  repeated SingleProvisionResponse provision_responses = 1;
+}
+
+message ReadRequest {
+  // Identifies an Eidetic quorum by listing each member's verifying public key.
+  repeated bytes quorum_public_keys = 1;
+  // Should be <= size of quorum_public_keys.
+  // At least threshold number of non-empty SingleResponse are returned
+  // where each one has the same values for state and version.
+  uint32 threshold = 4;
+  bytes eidetic_id = 2;
+  bytes challenge = 3;
+}
+
+// Response to either Read or Write from each quorum member.
+message SingleResponse {
+  EideticBlock eidetic_block = 1;
+  // Each eidetic_id stores a (state, version) tuple.
+  bytes state = 2;
+  uint64 version = 3;
+  repeated bytes challenge_merkle_proof = 4;
+  repeated bytes state_version_merkle_proof = 5;
+}
+
+message ReadResponse {
+  // Length must be equal to quorum size.
+  // Order matches that of `ReadRequest.quorum_public_keys`.
+  repeated SingleResponse responses = 1;
+}
+
+message WriteRequest {
+  // Identifies an Eidetic quorum by listing each member's verifying public key.
+  repeated bytes quorum_public_keys = 1;
+  // Should be <= size of quorum_public_keys.
+  // At least threshold number of non-empty SingleResponse are returned
+  // where each one has the same values for state and version.
+  uint32 threshold = 7;
+  bytes eidetic_id = 2;
+  bytes challenge = 3;
+  bytes new_state = 4;
+  uint64 new_version = 5;
+  // MAC on eidetic_id || new_state || version.
+  // Each of the above components are fixed length.
+  bytes mac = 6;
+}
+
+message WriteResponse {
+  // Length must be equal to quorum size.
+  // Order matches that of `WriteRequest.quorum_public_keys`.
+  repeated SingleResponse responses = 1;
+}

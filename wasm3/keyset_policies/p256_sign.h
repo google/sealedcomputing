@@ -75,6 +75,9 @@ class P256Sign : public PublicKeySign {
 
   std::unique_ptr<P256Verify> GetVerifyingKey() const;
 
+  // Output serialization of private key. Outputs empty string on error.
+  SecretByteString Serialize() const;
+
  private:
   EC_KEY* key_ = nullptr;
   std::string purpose_;

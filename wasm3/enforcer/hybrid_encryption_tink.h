@@ -16,15 +16,20 @@
 #define THIRD_PARTY_SEALEDCOMPUTING_WASM3_ENFORCER_HYBRID_ENCRYPTION_TINK_H_
 
 #include "third_party/absl/status/statusor.h"
-#include "third_party/sealedcomputing/wasm3/enforcer/hybrid_encryption.h"
-#include "third_party/tink/cc/keyset_handle.h"
 
 namespace sealed::wasm {
 
-// This translates a public key as exported by HybridEncryptionPrivateKey to the
+// This translates a public key as serialized by EciesX25519PublicKey to the
 // appropriate (binary) serialized Tink Keyset containing a
 // EciesAeadHkdfPublicKey.
-absl::StatusOr<std::string> GetTinkPublicKeyset(const std::string& pubkey);
+absl::StatusOr<std::string> GetTinkPublicKeysetFromEciesX25519PublicKey(
+    const std::string& pubkey);
+
+// This translates a public key as exported by EciesP256PublicKey to the
+// appropriate (binary) serialized Tink Keyset containing a
+// EciesAeadHkdfPublicKey.
+absl::StatusOr<std::string> GetTinkPublicKeysetFromEciesP256PublicKey(
+    const std::string& pubkey);
 
 // Extracts and returns the raw X25519 public value in
 // `serialized_tink_public_keyset` containing a EciesAeadHkdfPublicKey with

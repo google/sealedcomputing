@@ -34,6 +34,7 @@ namespace enforcer {
 
 #define P256_SCALAR_NBYTES 32
 #define P256_NBYTES 65
+#define P256_NBYTES_COMPRESSED 33
 #define ECDSA_NBYTES 64
 
 constexpr size_t kAesGcmNonceLength = uefi_crypto::kAesGcmNonceLength;
@@ -41,6 +42,8 @@ constexpr size_t kAesGcmTagLength = uefi_crypto::kAesGcmTagLength;
 constexpr size_t kAes128KeyLength = uefi_crypto::kAes128KeyLength;
 constexpr size_t kAes256KeyLength = uefi_crypto::kAes256KeyLength;
 constexpr size_t kAesBlockSize = uefi_crypto::kAesBlockSize;
+constexpr size_t kSha256DigestLength = uefi_crypto::kSha256DigestLength;
+constexpr size_t kSha256CBlockLength = uefi_crypto::kSha256CBlockLength;
 
 class EcPoint;
 class P256PrivateKey;
@@ -114,8 +117,8 @@ class EcPoint {
 
   void Serialize(uint8_t dst[P256_NBYTES]) const;
   ByteString Serialize() const;
-  static EcPoint Deserialize(const uint8_t src[P256_NBYTES]);
-  static EcPoint Deserialize(const ByteString& src);
+  static StatusOr<EcPoint> Deserialize(const uint8_t src[P256_NBYTES]);
+  static StatusOr<EcPoint> Deserialize(const ByteString& src);
 
   static EcPoint BaseMul(const Bignum& bignum);
 
@@ -126,7 +129,8 @@ class EcPoint {
  private:
   BN_CTX* ctx_ = BN_CTX_new();
   EC_GROUP* group_ = EC_GROUP_new_by_curve_name(NID_X9_62_prime256v1);
-  EC_POINT* ec_point_;
+  EC_POINT* ec_point_ = nullptr;
+  bool valid_ = true;
 };
 
 Logger& operator<<(Logger& o, const EcPoint& ec_point);
@@ -173,7 +177,7 @@ class P256PrivateKey {
   P256PrivateKey(P256PrivateKey&& key);
   P256PrivateKey(const Bignum& bignum);
   P256PrivateKey(const BIGNUM* bignum);
-  P256PrivateKey(const ByteString& secret, const ByteString& purpose);
+  P256PrivateKey(const SecretByteString& secret, const ByteString& purpose);
   ~P256PrivateKey();
 
   P256PrivateKey& operator=(const P256PrivateKey& key);
@@ -194,9 +198,9 @@ class P256PrivateKey {
   bool EcdsaVerify(const ByteString& digest, const EcdsaSig& sig) const;
 
   void Serialize(uint8_t dst[P256_SCALAR_NBYTES]) const;
-  ByteString Serialize() const;
+  SecretByteString Serialize() const;
   static P256PrivateKey Deserialize(const uint8_t src[P256_SCALAR_NBYTES]);
-  static P256PrivateKey Deserialize(const ByteString& src);
+  static P256PrivateKey Deserialize(const SecretByteString& src);
 
   friend bool EcdsaSig::Verify(const P256PrivateKey& key,
                                const ByteString& digest) const;
@@ -237,15 +241,15 @@ class P256PublicKey {
 
   void Serialize(uint8_t dst[P256_NBYTES]) const;
   ByteString Serialize() const;
-  static P256PublicKey Deserialize(const uint8_t src[P256_NBYTES]);
-  static P256PublicKey Deserialize(const ByteString& src);
+  static StatusOr<P256PublicKey> Deserialize(const uint8_t src[P256_NBYTES]);
+  static StatusOr<P256PublicKey> Deserialize(const ByteString& src);
 
   friend bool EcdsaSig::Verify(const P256PublicKey& key,
                                const ByteString& digest) const;
 
  private:
   EC_GROUP* group_ = EC_GROUP_new_by_curve_name(NID_X9_62_prime256v1);
-  EC_KEY* key_;
+  EC_KEY* key_ = nullptr;
 };
 
 Logger& operator<<(Logger& o, const P256PublicKey& key);
@@ -253,7 +257,7 @@ Logger& operator<<(Logger& o, const P256PublicKey& key);
 class Aes {
  public:
   Aes(const uint8_t key[kAes128KeyLength]);
-  Aes(const ByteString& key);
+  Aes(const SecretByteString& key);
   Aes(const Aes& aes);
   Aes(Aes&& aes);
 
@@ -262,7 +266,7 @@ class Aes {
 
   void EncryptBlock(const uint8_t in[kAesBlockSize],
                     uint8_t out[kAesBlockSize]) const;
-  ByteString EncryptBlock(const ByteString& in) const;
+  ByteString EncryptBlock(const SecretByteString& in) const;
 
   void DecryptBlock(const uint8_t in[kAesBlockSize],
                     uint8_t out[kAesBlockSize]) const;
@@ -276,7 +280,7 @@ class AesGcm {
  public:
   AesGcm();
   AesGcm(const uint8_t key[kAes128KeyLength]);
-  AesGcm(const ByteString& key);
+  AesGcm(const SecretByteString& key);
   AesGcm(const AesGcm& aes_gcm);
   AesGcm(AesGcm&& aes_gcm);
 
@@ -284,8 +288,8 @@ class AesGcm {
   AesGcm& operator=(AesGcm&& aes_gcm);
 
   ByteString Encrypt(const uint8_t nonce[kAesGcmNonceLength],
-                     const ByteString& in, const ByteString& ad = "");
-  ByteString Encrypt(const ByteString& nonce, const ByteString& in,
+                     const SecretByteString& in, const ByteString& ad = "");
+  ByteString Encrypt(const ByteString& nonce, const SecretByteString& in,
                      const ByteString& ad = "");
 
   StatusOr<SecretByteString> Decrypt(const uint8_t nonce[kAesGcmNonceLength],
@@ -335,7 +339,7 @@ class HmacSha256 {
   SecretByteString digest_ = SecretByteString(SHA256_DIGEST_LENGTH);
 };
 
-SecretByteString Hkdf(int32_t out_len, const ByteString& secret,
+SecretByteString Hkdf(int32_t out_len, const SecretByteString& secret,
                       const ByteString& salt, const ByteString& info);
 
 }  // namespace enforcer

@@ -29,7 +29,7 @@ namespace uefi_crypto {
 // Derive a secret with HKDF over the secret and info with 1-byte counter
 // appended.  If the derived key is >= group order, increment counter and try
 // again.
-EC_KEY* DeriveP256KeyFromSecret(const ByteString& secret,
+EC_KEY* DeriveP256KeyFromSecret(const SecretByteString& secret,
                                 const ByteString& purpose) {
   if (!global_initialized) {
     InitializeCryptoLib();

@@ -49,7 +49,7 @@ enum StatusCode : uint8_t {
 };
 
 // A status code which can be returned by an RPC.
-class Status {
+class [[nodiscard]] Status {
  public:
   Status() : code_(kOk), error_message_() {}
   Status(StatusCode error_code, const std::string& error_message)
@@ -92,6 +92,17 @@ bool operator!=(StatusCode error_code, const Status& status);
     if (!_status) {                          \
       return _status;                        \
     }                                        \
+  }
+
+// For use in gUnit tests only.
+#define SC_ASSERT_OK(expr)                                        \
+  {                                                               \
+    auto status = (expr);                                         \
+    if (!status.ok()) {                                           \
+      FAIL() << "Asserting OK Status: Actual: "                   \
+             << ::sealed::wasm::StatusCodeToString(status.code()) \
+             << " with message: " << status.message();            \
+    }                                                             \
   }
 
 }  // namespace wasm

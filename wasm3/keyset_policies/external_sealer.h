@@ -26,8 +26,6 @@ namespace sealed {
 namespace wasm {
 
 // A Sealer that is provided its key during construction.
-//
-// This class mimics hardware-bound secrets through an externally provided key.
 class ExternalSealer : public Sealer {
  public:
   static StatusOr<std::unique_ptr<ExternalSealer>> Create(

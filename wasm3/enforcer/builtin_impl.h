@@ -46,6 +46,7 @@ m3ApiRawFunction(biHmacSha256_wrapper);
 m3ApiRawFunction(biHmacSha256init_wrapper);
 m3ApiRawFunction(biHmacSha256update_wrapper);
 m3ApiRawFunction(biHmacSha256final_wrapper);
+m3ApiRawFunction(biHkdf_wrapper);
 m3ApiRawFunction(biGetRequest_wrapper);
 m3ApiRawFunction(biGetRequestSecret_wrapper);
 m3ApiRawFunction(biGetRequestSecretLength_wrapper);
@@ -73,6 +74,18 @@ m3ApiRawFunction(biDestroyP256PrivateKey_wrapper);
 m3ApiRawFunction(biP256PublicKeyFromBin_wrapper);
 m3ApiRawFunction(biEcdsaSigFromBin_wrapper);
 m3ApiRawFunction(biP256EcdsaVerify_wrapper);
+m3ApiRawFunction(biGenEciesX25519PrivateKey_wrapper);
+m3ApiRawFunction(biEciesX25519PublicKeyFromPrivateKey_wrapper);
+m3ApiRawFunction(biEciesX25519PublicKeyFromBin_wrapper);
+m3ApiRawFunction(biDestroyEciesX25519PrivateKey_wrapper);
+m3ApiRawFunction(biDestroyEciesX25519PublicKey_wrapper);
+m3ApiRawFunction(biEciesX25519AesGcmHkdfEncrypt_wrapper);
+m3ApiRawFunction(biEciesX25519AesGcmHkdfDecrypt_wrapper);
+m3ApiRawFunction(biGroupEciesP256PublicKeyToBin_wrapper);
+m3ApiRawFunction(biEciesP256PublicKeyFromBin_wrapper);
+m3ApiRawFunction(biDestroyEciesP256PublicKey_wrapper);
+m3ApiRawFunction(biEciesP256AesGcmHkdfEncrypt_wrapper);
+m3ApiRawFunction(biGroupEciesP256AesGcmHkdfDecrypt_wrapper);
 
 }  // extern "C"
 

@@ -15,6 +15,8 @@
 #include <algorithm>
 
 #include "third_party/sealedcomputing/wasm3/base.h"
+#include "third_party/sealedcomputing/wasm3/builtin/builtin_wasm.h"
+#include "third_party/sealedcomputing/wasm3/builtin/crypto_wasm.h"
 #include "third_party/sealedcomputing/wasm3/bytestring.h"
 #include "third_party/sealedcomputing/wasm3/logging.h"
 #include "third_party/sealedcomputing/wasm3/statusor.h"
@@ -26,11 +28,17 @@ WASM_EXPORT int start() {
   return 0;
 }
 
-namespace sealed::wasm::tests::server {
+namespace sealed {
+namespace wasm {
+namespace tests {
+namespace server {
 
+using ::sealed::wasm::ByteString;
 using ::sealed::wasm::DecryptWithGroupKey;
 using ::sealed::wasm::SecretByteString;
 using ::sealed::wasm::StatusOr;
+
+constexpr uint8_t context_info[] = "context_info";
 
 StatusOr<DecryptResponse> Decrypt(const DecryptRequest& request) {
   StatusOr<SecretByteString> plaintext =
@@ -39,14 +47,39 @@ StatusOr<DecryptResponse> Decrypt(const DecryptRequest& request) {
   return DecryptResponse{plaintext->string()};
 }
 
+StatusOr<DecryptResponse> DecryptP256(const DecryptRequest& request) {
+  SecretByteString plaintext(request.ciphertext.size() - 61);
+  SC_CHECK(biGroupEciesP256AesGcmHkdfDecrypt(
+      request.ciphertext.data(), request.ciphertext.size(), context_info,
+      sizeof(context_info), plaintext.data()));
+  return DecryptResponse{plaintext.string()};
+}
+
 StatusOr<EncryptResponse> Encrypt(const EncryptRequest& request) {
   return EncryptResponse{
       wasm::EncryptWithGroupKey(request.plaintext, "").string()};
 }
 
-StatusOr<PanicResponse> Panic(const PanicRequest& request) {
-  SC_PANIC() << "This error is expected.";
-  return PanicResponse{};
+StatusOr<EncryptResponse> EncryptP256(const EncryptRequest& request) {
+  // Get a handle for the job P256 public key.
+  uint8_t pubkey[33];
+  biGroupEciesP256PublicKeyToBin(pubkey);
+  auto pubkey_handle = biEciesP256PublicKeyFromBin(pubkey);
+
+  // Encrypt to the job P256 public key.
+  ByteString ciphertext(request.plaintext.size() + 61);
+  biEciesP256AesGcmHkdfEncrypt(pubkey_handle, request.plaintext.data(),
+                               request.plaintext.size(), context_info,
+                               sizeof(context_info), ciphertext.data());
+  return EncryptResponse{ciphertext.string()};
 }
 
-}  // namespace sealed::wasm::tests::server
+StatusOr<PanicResponse> Panic(const PanicRequest& request) {
+  SC_PANIC() << "This error is expected.";
+  return PanicResponse();
+}
+
+}  // namespace server
+}  // namespace tests
+}  // namespace wasm
+}  // namespace sealed

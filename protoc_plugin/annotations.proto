@@ -24,3 +24,9 @@ extend proto2.FieldOptions {
   // integrity-protected as all fields are).
   optional bool secret = 413580097 [default = false];
 }
+
+extend proto2.FileOptions {
+  // Override the package name used by sealed protoc plugin. This affects the
+  // C++ namespace used in generated code.
+  optional string sealed_package = 459590724;
+}

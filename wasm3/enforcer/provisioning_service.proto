@@ -58,6 +58,7 @@ service LocalProvisioningService {
   rpc StartGroup(StartGroupRequest) returns (StartGroupResponse) {}
 }
 
+// LINT.IfChange
 // Identifies a type of Sealer used to wrap and unwrap task and group secrets.
 enum SealerType {
   SEALER_TYPE_UNKNOWN = 0;
@@ -69,13 +70,19 @@ enum SealerType {
   // Suitable for customer applications that want to run a Sealed Computing
   // application without full hardware support.
   SEALER_TYPE_EXTERNAL = 2;
+
+  // A Sealer that uses a TEE-protected key that is bound to the machine and
+  // code identity of the policy enforcer and its runtime dependencies.
+  // Currently, support for this is only available when running on a SEV-SNP
+  // microVM implementation.
+  SEALER_TYPE_CPU = 3;
 }
 
 message OutboundRpcConfig {
   // Sealed RPC method name.
   string method_name = 1;
   // Identifies the endpoint providing the service.
-  string pubkey = 2;
+  bytes pubkey = 2;
   // Determines whether to send outgoing requests to `method_name` only over a
   // secure channel.
   bool require_secure = 3;
@@ -88,6 +95,23 @@ message InboundRpcConfig {
   bool require_secure = 2;
 }
 
+// Describes the security-critical config needed to commit and read state
+// to/from an Eidetic quorum.
+message EideticConfig {
+  // Human-readable name for Eidetic quorum, not security-sensitive.
+  string name = 1;
+  // For each quorum member, the public key to verify EideticBlock signatures
+  // with.
+  // Length must be equal to quorum size.
+  repeated bytes signature_public_keys = 2;
+  // Must be > 0 and <= quorum size.
+  int32 threshold = 3;
+  // For each quorum member, the public key to encrypt MAC secrets to.
+  // Length must be equal to quorum size and order must match that in
+  // `signature_public_keys`.
+  repeated bytes hybrid_encryption_public_keys = 4;
+}
+
 // Contains everything the policy enforcer needs to start a sealed task.
 message SealedTaskConfig {
   // RPC configs for outbound calls.
@@ -96,35 +120,39 @@ message SealedTaskConfig {
   repeated InboundRpcConfig inbound_rpc_configs = 2;
   // The type of Sealer to use for wrapping/unwrapping task secrets.
   SealerType sealer_type = 3;
+  // Config for using an Eidetic quorum.
+  // An empty (i.e. default) message implies no dependency on Eidetic.
+  EideticConfig eidetic_config = 4;
 }
+// LINT.ThenChange(//depot/google3/security/sealedcomputing/manual_provisioning/provisioning.proto)
 
 message ProvisionTaskResponse {
   // The task public key: used to verify signatures made by the task.
-  string task_pubkey = 1;
+  bytes task_pubkey = 1;
   // An encrypted copy of the provisioned state of the task. This blob
   // is subsequently needed to load the task secrets a.k.a. start the task.
-  string wrapped_blob = 2;
+  bytes wrapped_blob = 2;
 }
 
 message StartTaskRequest {
   SealedTaskConfig task_config = 1;
-  string wrapped_blob = 2;
+  bytes wrapped_blob = 2;
 }
 
 message StartTaskResponse {
-  // The sealed protoc_plugin does not support empty messages.
-  // TODO(b/223244303): remove this.
-  string unused = 1;
+  bytes task_pubkey = 1;
 }
 
+// LINT.IfChange
 // Identifies a sealed group: a collection of task replicas provisioned with
 // shared group secrets.
 message SealedGroupConfig {
   // Sequence of task public keys constituting the group.
   // The first task in this sequence identifies the "genesis node" for the
   // group.
-  repeated string task_pubkeys = 1;
+  repeated bytes task_pubkeys = 1;
 }
+// LINT.ThenChange(//depot/google3/security/sealedcomputing/manual_provisioning/provisioning.proto)
 
 message ProvisionGroupGenesisRequest {
   SealedGroupConfig group_config = 1;
@@ -133,32 +161,32 @@ message ProvisionGroupGenesisRequest {
 message ProvisionGroupMemberRequest {
   SealedGroupConfig group_config = 1;
   // A master secret used to deterministically derive all group secrets.
-  string group_pre_secret = 2 [(sealed.proto.secret) = true];
+  bytes group_pre_secret = 2 [(sealed.proto.secret) = true];
 }
 
 message ProvisionGroupResponse {
   // The group public key, used to encrypt secrets to the group.
   // Every group member is provisioned with the corresponding decryption key.
-  string group_pubkey = 1;
+  bytes group_pubkey = 1;
   // An encrypted copy of the provisioned state of the group.
   // This blob is subsequently required to load the group secrets on the callee.
-  string wrapped_blob = 2;
+  bytes wrapped_blob = 2;
 }
 
 message CallProvisionGroupMemberRequest {
   // Identifies a group member to call ProvisionGroupMember on.
-  string task_pubkey = 1;
+  bytes task_pubkey = 1;
 }
 
 message CallProvisionGroupMemberResponse {
   // ProvisionGroupResponse.wrapped_blob from the ProvisionGroupMember call
   // made to the given group member.
-  string wrapped_blob = 1;
+  bytes wrapped_blob = 1;
 }
 
 message StartGroupRequest {
   SealedGroupConfig group_config = 1;
-  string wrapped_blob = 2;
+  bytes wrapped_blob = 2;
 }
 
 message StartGroupResponse {

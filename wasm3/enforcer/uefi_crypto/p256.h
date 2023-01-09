@@ -26,7 +26,7 @@ namespace uefi_crypto {
 
 constexpr size_t kP256PrivKeyBytes = 32;
 
-EC_KEY* DeriveP256KeyFromSecret(const ByteString& secret,
+EC_KEY* DeriveP256KeyFromSecret(const SecretByteString& secret,
                                 const ByteString& purpose);
 
 }  // namespace uefi_crypto

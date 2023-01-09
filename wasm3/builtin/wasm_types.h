@@ -55,5 +55,8 @@
 #define biOpaqueAesGcmKey int64_t
 #define biOpaqueSha256 int64_t
 #define biOpaqueHmac int64_t
+#define biOpaqueEciesX25519PrivateKey int64_t
+#define biOpaqueEciesX25519PublicKey int64_t
+#define biOpaqueEciesP256PublicKey int64_t
 
 #endif  // THIRD_PARTY_SEALEDCOMPUTING_WASM3_BUILTIN_WASM_TYPES_H_

@@ -23,6 +23,7 @@
 #include "third_party/sealedcomputing/wasm3/keyset_policies/p256_sign.h"
 #include "third_party/sealedcomputing/wasm3/keyset_policies/sealer.h"
 #include "third_party/sealedcomputing/wasm3/keyset_policies/task_sealer.h"
+#include "third_party/sealedcomputing/wasm3/logging.h"
 #include "third_party/sealedcomputing/wasm3/status.h"
 
 namespace sealed {
@@ -32,6 +33,10 @@ namespace wasm {
 constexpr char kBytecodeSigningPurpose[] =
     "signing purpose: sealed computing v0: bytecode quoting";
 
+// Purpose string used to sign Eidetic provision request messages.
+constexpr char kProvisionRequestSigningPurpose[] =
+    "Eidetic provision signature";
+
 // Contains the state of ProvisioningService. This includes trusted application
 // state (secrets and config structs) created or acquired during task and group
 // provisioning. This also includes state provided by hardware.
@@ -40,8 +45,8 @@ class ProvisionedState {
   // Copies in `task_config` and establishes a sealer. If `task_config`
   // specifies an external key, then `external_key` must be a raw 128-bit
   // AES-GCM-SIV private key.
-  void SetTaskConfig(const SealedTaskConfig& task_config,
-                     const SecretByteString& external_key = "");
+  Status SetTaskConfig(const SealedTaskConfig& task_config,
+                       const SecretByteString& external_key = "");
 
   // Copies in `task_pre_secret` and derives task keys. Requires SetTaskConfig
   // to have been called already.
@@ -57,6 +62,10 @@ class ProvisionedState {
     return task_handshake_signer_.get();
   }
 
+  P256Sign* GetEideticProvisionRequestSigner() const {
+    return task_eidetic_provision_request_signer_.get();
+  }
+
   void SetTaskHandshakeSignerForTesting(std::unique_ptr<P256Sign> signer) {
     task_handshake_signer_ = std::move(signer);
   }
@@ -67,10 +76,19 @@ class ProvisionedState {
 
   const SecretByteString& GetTaskPreSecret() const { return task_pre_secret_; }
 
+  const SecretByteString& GetTaskHmacKey() const {
+    SC_CHECK(!task_hmac_key_.empty());
+    return task_hmac_key_;
+  }
+
   const SealedGroupConfig& GetGroupConfig() const { return group_config_; }
 
   const HybridEncryptionPrivateKey* GetGroupEncryptionKey() const {
     return group_he_privkey_.get();
+  }
+
+  const EciesP256PrivateKey* GetGroupP256EncryptionKey() const {
+    return group_p256_privkey_.get();
   }
 
   const SecretByteString& GetGroupPreSecret() const {
@@ -96,7 +114,7 @@ class ProvisionedState {
   // `external_key` is only used if the kExternal Sealer type is specified. In
   // that case, `external_key` should be assigned a 128-bit AES-GCM-SIV private
   // key.
-  void DeriveTaskSealer(const SecretByteString& external_key);
+  Status DeriveTaskSealer(const SecretByteString& external_key);
 
   // A Sealer which encrypts and binds user content to customer tasks.
   std::unique_ptr<TaskSealer> sealer_;
@@ -109,12 +127,17 @@ class ProvisionedState {
   std::unique_ptr<P256Sign> task_handshake_signer_;
   // Task signing key used to attest data from the bytecode.
   std::unique_ptr<P256Sign> task_bytecode_signer_;
+  // Task signing key used to sign Eidetic provision requests.
+  std::unique_ptr<P256Sign> task_eidetic_provision_request_signer_;
+  // Task HMAC-SHA256 key.
+  SecretByteString task_hmac_key_;
 
   SealedGroupConfig group_config_;
   // Randomly generated and shared between group members during group
   // provisioning,
   SecretByteString group_pre_secret_;
   std::unique_ptr<HybridEncryptionPrivateKey> group_he_privkey_;
+  std::unique_ptr<EciesP256PrivateKey> group_p256_privkey_;
 };
 
 }  // namespace wasm

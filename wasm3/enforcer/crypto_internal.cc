@@ -31,6 +31,7 @@
 #include "third_party/sealedcomputing/wasm3/enforcer/uefi_crypto/hkdf_sha256.h"
 #include "third_party/sealedcomputing/wasm3/enforcer/uefi_crypto/p256.h"
 #include "third_party/sealedcomputing/wasm3/logging.h"
+#include "third_party/sealedcomputing/wasm3/status.h"
 
 namespace sealed {
 namespace wasm {
@@ -57,8 +58,7 @@ Bignum::Bignum(const uint8_t src[P256_SCALAR_NBYTES])
 }
 
 Bignum::Bignum(const ByteString& src)
-    : bignum_(BN_bin2bn(src.data(), P256_SCALAR_NBYTES, nullptr)) {
-  SC_CHECK_EQ(src.size(), P256_SCALAR_NBYTES);
+    : bignum_(BN_bin2bn(src.data(), src.size(), nullptr)) {
   SC_CHECK_NOT_NULL(bignum_);
 }
 
@@ -155,28 +155,30 @@ EcPoint::EcPoint() : ec_point_(nullptr) {}
 EcPoint::EcPoint(const EcPoint& ec_point)
     : ec_point_(EC_POINT_dup(ec_point.ec_point_, group_)) {
   SC_CHECK_NOT_NULL(ec_point_);
+  valid_ = ec_point.valid_;
 }
 
 EcPoint::EcPoint(EcPoint&& ec_point) {
-  SC_CHECK_NOT_NULL(ec_point.ec_point_);
+  if (ec_point_ != nullptr) {
+    EC_POINT_free(ec_point_);
+  }
   ec_point_ = ec_point.ec_point_;
   ec_point.ec_point_ = nullptr;
+  valid_ = ec_point.valid_;
 }
 
-// TODO(ethangertler): Elsewhere in google3, P256_NBYTES is defined to be 32,
 // rather than 65.  Maybe make this constexpr uint32_t kP256PubKeyLen = 65;?
 EcPoint::EcPoint(const uint8_t src[P256_NBYTES])
     : ec_point_(EC_POINT_new(group_)) {
   SC_CHECK_NOT_NULL(ec_point_);
-  SC_CHECK_SSL_OK(
-      EC_POINT_oct2point(group_, ec_point_, src, P256_NBYTES, ctx_));
+  valid_ = valid_ &&
+           EC_POINT_oct2point(group_, ec_point_, src, P256_NBYTES, ctx_) > 0;
 }
 
 EcPoint::EcPoint(const ByteString& src) : ec_point_(EC_POINT_new(group_)) {
   SC_CHECK_NOT_NULL(ec_point_);
-  SC_CHECK_EQ(src.size(), P256_NBYTES);
-  SC_CHECK_SSL_OK(
-      EC_POINT_oct2point(group_, ec_point_, src.data(), P256_NBYTES, ctx_));
+  valid_ = valid_ && EC_POINT_oct2point(group_, ec_point_, src.data(),
+                                        P256_NBYTES, ctx_) > 0;
 }
 
 EcPoint::EcPoint(EC_POINT* ec_point) : ec_point_(ec_point) {
@@ -263,7 +265,7 @@ bool EcPoint::operator!=(const EC_POINT* ec_point) const {
 }
 
 bool EcPoint::IsValidPoint() const {
-  return EC_POINT_is_on_curve(group_, ec_point_, ctx_) == 1;
+  return valid_ && EC_POINT_is_on_curve(group_, ec_point_, ctx_) == 1;
 }
 
 void EcPoint::Serialize(uint8_t dst[P256_NBYTES]) const {
@@ -280,11 +282,20 @@ ByteString EcPoint::Serialize() const {
   return dst;
 }
 
-EcPoint EcPoint::Deserialize(const uint8_t src[P256_NBYTES]) {
-  return EcPoint(src);
+StatusOr<EcPoint> EcPoint::Deserialize(const uint8_t src[P256_NBYTES]) {
+  auto point = EcPoint(src);
+  if (!point.IsValidPoint()) {
+    return Status(kInvalidArgument, "");
+  }
+  return point;
 }
 
-EcPoint EcPoint::Deserialize(const ByteString& src) { return EcPoint(src); }
+StatusOr<EcPoint> EcPoint::Deserialize(const ByteString& src) {
+  if (src.size() != P256_NBYTES) {
+    return Status(kInvalidArgument, "");
+  }
+  return EcPoint::Deserialize(src.data());
+}
 
 EcPoint EcPoint::BaseMul(const Bignum& bignum) {
   EC_GROUP* group = EC_GROUP_new_by_curve_name(NID_X9_62_prime256v1);
@@ -453,7 +464,7 @@ P256PrivateKey::P256PrivateKey(const BIGNUM* bignum) : key_(EC_KEY_new()) {
   SetPublicKey();
 }
 
-P256PrivateKey::P256PrivateKey(const ByteString& secret,
+P256PrivateKey::P256PrivateKey(const SecretByteString& secret,
                                const ByteString& purpose) {
   key_ = uefi_crypto::DeriveP256KeyFromSecret(secret, purpose);
   SC_CHECK_NOT_NULL(key_);
@@ -514,6 +525,9 @@ Bignum P256PrivateKey::GetPrivateBignum() const {
 }
 
 EcPoint P256PrivateKey::GetPublicEcPoint() const {
+  if (key_ == nullptr) {
+    return EcPoint();
+  }
   return EcPoint(EC_KEY_get0_public_key(key_));
 }
 
@@ -530,8 +544,10 @@ void P256PrivateKey::Serialize(uint8_t dst[P256_SCALAR_NBYTES]) const {
   GetPrivateBignum().Serialize(dst);
 }
 
-ByteString P256PrivateKey::Serialize() const {
-  return GetPrivateBignum().Serialize();
+SecretByteString P256PrivateKey::Serialize() const {
+  SecretByteString dst(P256_SCALAR_NBYTES);
+  GetPrivateBignum().Serialize(dst.data());
+  return dst;
 }
 
 P256PrivateKey P256PrivateKey::Deserialize(
@@ -539,7 +555,7 @@ P256PrivateKey P256PrivateKey::Deserialize(
   return P256PrivateKey(Bignum(src));
 }
 
-P256PrivateKey P256PrivateKey::Deserialize(const ByteString& src) {
+P256PrivateKey P256PrivateKey::Deserialize(const SecretByteString& src) {
   return P256PrivateKey(Bignum(src));
 }
 
@@ -564,16 +580,17 @@ P256PublicKey::P256PublicKey(const P256PublicKey& key)
 }
 
 P256PublicKey::P256PublicKey(P256PublicKey&& key) {
-  SC_CHECK_NOT_NULL(key.key_);
   key_ = key.key_;
   key.key_ = nullptr;
 }
 
-P256PublicKey::P256PublicKey(const EcPoint& ec_point) : key_(EC_KEY_new()) {
-  SC_CHECK_NOT_NULL(key_);
-  SC_CHECK_SSL_OK(EC_KEY_set_group(key_, group_));
-  SC_CHECK_SSL_OK(
-      EC_KEY_set_public_key(key_, ec_point.Internal_GetOpenSslEcPoint()));
+P256PublicKey::P256PublicKey(const EcPoint& ec_point) : key_(nullptr) {
+  if (ec_point.IsValidPoint()) {
+    key_ = EC_KEY_new();
+    SC_CHECK_SSL_OK(EC_KEY_set_group(key_, group_));
+    SC_CHECK_SSL_OK(
+        EC_KEY_set_public_key(key_, ec_point.Internal_GetOpenSslEcPoint()));
+  }
 }
 
 P256PublicKey::P256PublicKey(const EC_POINT* ec_point) : key_(EC_KEY_new()) {
@@ -601,7 +618,6 @@ P256PublicKey& P256PublicKey::operator=(const P256PublicKey& key) {
 
 P256PublicKey& P256PublicKey::operator=(P256PublicKey&& key) {
   if (this != &key) {
-    SC_CHECK_NOT_NULL(key.key_);
     if (key_ != nullptr) {
       EC_KEY_free(key_);
     }
@@ -644,12 +660,15 @@ ByteString P256PublicKey::Serialize() const {
   return GetPublicEcPoint().Serialize();
 }
 
-P256PublicKey P256PublicKey::Deserialize(const uint8_t src[P256_NBYTES]) {
-  return P256PublicKey(EcPoint(src));
+StatusOr<P256PublicKey> P256PublicKey::Deserialize(
+    const uint8_t src[P256_NBYTES]) {
+  SC_ASSIGN_OR_RETURN(EcPoint point, EcPoint::Deserialize(src));
+  return P256PublicKey(point);
 }
 
-P256PublicKey P256PublicKey::Deserialize(const ByteString& src) {
-  return P256PublicKey(EcPoint(src));
+StatusOr<P256PublicKey> P256PublicKey::Deserialize(const ByteString& src) {
+  SC_ASSIGN_OR_RETURN(EcPoint point, EcPoint::Deserialize(src));
+  return P256PublicKey(point);
 }
 
 Logger& operator<<(Logger& o, const P256PublicKey& key) {
@@ -659,7 +678,7 @@ Logger& operator<<(Logger& o, const P256PublicKey& key) {
 Aes::Aes(const uint8_t key[uefi_crypto::kAes128KeyLength])
     : key_(SecretByteString(key, uefi_crypto::kAes128KeyLength)) {}
 
-Aes::Aes(const ByteString& key) : Aes(key.data()) {
+Aes::Aes(const SecretByteString& key) : Aes(key.data()) {
   SC_CHECK_EQ(key.size(), uefi_crypto::kAes128KeyLength);
 }
 
@@ -698,7 +717,7 @@ void Aes::EncryptBlock(const uint8_t in[uefi_crypto::kAesBlockSize],
   memcpy(out, out_enc.data(), out_enc.size());
 }
 
-ByteString Aes::EncryptBlock(const ByteString& in) const {
+ByteString Aes::EncryptBlock(const SecretByteString& in) const {
   SC_CHECK_EQ(in.size(), uefi_crypto::kAesBlockSize);
   ByteString out(uefi_crypto::kAesBlockSize);
   uefi_crypto::AesEncryptBlock(key_, in, &out);
@@ -724,7 +743,7 @@ AesGcm::AesGcm() { key_ = RandBytes(uefi_crypto::kAes128KeyLength); }
 AesGcm::AesGcm(const uint8_t key[uefi_crypto::kAes128KeyLength])
     : key_(key, uefi_crypto::kAes128KeyLength) {}
 
-AesGcm::AesGcm(const ByteString& key) : key_(key) {
+AesGcm::AesGcm(const SecretByteString& key) : key_(key) {
   SC_CHECK_EQ(key.size(), uefi_crypto::kAes128KeyLength);
 }
 
@@ -751,12 +770,12 @@ AesGcm& AesGcm::operator=(AesGcm&& aes_gcm) {
 }
 
 ByteString AesGcm::Encrypt(const uint8_t nonce[uefi_crypto::kAesGcmNonceLength],
-                           const ByteString& in, const ByteString& ad) {
+                           const SecretByteString& in, const ByteString& ad) {
   return *uefi_crypto::AesGcmEncrypt(
       key_, ByteString(nonce, uefi_crypto::kAesGcmNonceLength), in, ad);
 }
 
-ByteString AesGcm::Encrypt(const ByteString& nonce, const ByteString& in,
+ByteString AesGcm::Encrypt(const ByteString& nonce, const SecretByteString& in,
                            const ByteString& ad) {
   return Encrypt(nonce.data(), in, ad);
 }
@@ -845,7 +864,7 @@ SecretByteString HmacSha256::Digest(const SecretByteString& key,
   return uefi_crypto::HmacSha256(key, data);
 }
 
-SecretByteString Hkdf(int32_t out_len, const ByteString& secret,
+SecretByteString Hkdf(int32_t out_len, const SecretByteString& secret,
                       const ByteString& salt, const ByteString& info) {
   return uefi_crypto::HkdfSha256(out_len, secret, salt, info);
 }
